@@ -76,6 +76,19 @@ h1.title span{color:#ffd24d;}
   border:1px solid var(--border);border-radius:6px;padding:9px 13px;font-size:1.05rem;
   cursor:pointer;user-select:none;transition:background .12s;box-shadow:0 2px 8px rgba(0,0,0,.12);}
 #sound-btn:hover{background:rgba(0,0,0,.06);}
+#rs-toggle{position:absolute;top:72px;right:14px;z-index:11;background:rgba(253,248,236,.95);border:1px solid var(--border);
+  border-radius:6px;padding:6px 11px;font-size:.8rem;font-weight:700;color:var(--green-d);cursor:pointer;user-select:none;box-shadow:0 2px 8px rgba(0,0,0,.12);}
+#rsettings{position:absolute;top:108px;right:14px;z-index:11;width:236px;display:none;background:rgba(253,248,236,.97);
+  border:1px solid var(--border);border-radius:8px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.22);}
+.rs-title{font-weight:900;color:var(--green-d);font-size:.86rem;margin-bottom:8px;}
+.rs-lab{font-size:.74rem;color:var(--dim);margin:8px 0 3px;font-family:'IBM Plex Mono',monospace;}
+.rs-tm{display:flex;flex-wrap:wrap;gap:4px;}
+.rs-tm button{flex:1 1 auto;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);
+  font-size:.68rem;font-weight:700;padding:5px 4px;cursor:pointer;}
+.rs-tm button.on{background:var(--green);color:#fff;border-color:var(--green);}
+#rsettings input[type=range]{width:100%;accent-color:var(--green);}
+.rs-out{margin-top:10px;font-family:'IBM Plex Mono',monospace;font-size:.68rem;color:var(--gold-d);
+  background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 8px;word-break:break-word;}
 #tip{position:absolute;bottom:12px;left:12px;z-index:10;background:rgba(253,248,236,.95);border:1px solid var(--border);
   border-radius:6px;padding:10px 16px;font-size:.88rem;color:var(--text);max-width:400px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.12);}
 #tip b{color:var(--gold-d);}
@@ -150,6 +163,21 @@ h1.title span{color:#ffd24d;}
   </div>
   <div id="dim-badge"></div>
   <div id="sound-btn" onclick="toggleMute()" title="Activer / couper le son">🔊</div>
+  <div id="rs-toggle" onclick="toggleRSettings()">⚙️ Rendu</div>
+  <div id="rsettings">
+    <div class="rs-title">Réglages rendu (test)</div>
+    <div class="rs-lab">Tone mapping</div>
+    <div class="rs-tm">
+      <button data-tm="aces">ACES</button><button data-tm="reinhard">Reinhard</button><button data-tm="cineon" class="on">Cineon</button><button data-tm="linear">Linéaire</button><button data-tm="none">Aucun</button>
+    </div>
+    <div class="rs-lab">Exposition · <span id="rs-exp-v">0.45</span></div>
+    <input type="range" id="rs-exp" min="0.2" max="1.6" step="0.05" value="0.45">
+    <div class="rs-lab">Soleil · <span id="rs-sun-v">0.75</span></div>
+    <input type="range" id="rs-sun" min="0" max="3" step="0.05" value="0.75">
+    <div class="rs-lab">Ambiante · <span id="rs-amb-v">0.30</span></div>
+    <input type="range" id="rs-amb" min="0" max="1.5" step="0.05" value="0.3">
+    <div class="rs-out" id="rs-out">TM cineon · expo 0.45 · soleil 0.75 · amb 0.30</div>
+  </div>
   <div id="cam-view" onclick="toggleView()" title="Changer de vue">🚜 Vue conducteur</div>
   <div id="cam-reset" onclick="resetCamera()" title="Recentrer la caméra">🎥 Recentrer la vue</div>
   <div id="controls"><b>⬆︎ ⬇︎</b> avancer / reculer &nbsp; <b>⬅︎ ➜</b> tourner &nbsp;<span style="font-size:.68rem">(ou Z Q S D)</span><br>
@@ -220,16 +248,37 @@ function markRectDone(){ sessionRectDone=true; try{localStorage.setItem('agromat
 
 // ═══════════ AUDIO ═══════════
 let audioCtx=null, masterGain=null, engine=null, muted=false, lastTool=0;
+let ambientBuf=null, ambientGain=null, ambientStarted=false;
 const AMBIENT_SRC='ambient.mp3';   // dépose ce fichier (boucle nature libre de droits) à côté du HTML
 function initAudio(){
   if(audioCtx) return;
   try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
   masterGain=audioCtx.createGain(); masterGain.gain.value=muted?0:1; masterGain.connect(audioCtx.destination);
 }
-function startAmbient(){
-  const a=document.getElementById('ambient'); if(!a) return;
-  if(!a.getAttribute('src')) a.src=AMBIENT_SRC;
-  a.volume=0.22; a.muted=muted; a.play().catch(()=>{});
+async function startAmbient(){
+  if(!audioCtx || ambientStarted) return;
+  ambientStarted=true;
+  try{
+    const res=await fetch(AMBIENT_SRC); if(!res.ok){ ambientStarted=false; return; }
+    ambientBuf=await audioCtx.decodeAudioData(await res.arrayBuffer());
+  }catch(e){ ambientStarted=false; return; }   // fichier absent → pas d'ambiance
+  ambientGain=audioCtx.createGain(); ambientGain.gain.value=0.22; ambientGain.connect(masterGain);
+  scheduleAmbientLoop(audioCtx.currentTime+0.1);
+}
+// Boucle avec chevauchement : fondu en sortie mixé au fondu en entrée (raccord inaudible)
+function scheduleAmbientLoop(startAt){
+  if(!ambientBuf||!ambientGain) return;
+  const dur=ambientBuf.duration, xf=Math.min(2.5, dur*0.35);
+  const src=audioCtx.createBufferSource(); src.buffer=ambientBuf;
+  const g=audioCtx.createGain(); src.connect(g); g.connect(ambientGain);
+  g.gain.setValueAtTime(0.0001,startAt);
+  g.gain.linearRampToValueAtTime(1,startAt+xf);            // fondu en entrée
+  g.gain.setValueAtTime(1,startAt+dur-xf);
+  g.gain.linearRampToValueAtTime(0.0001,startAt+dur);      // fondu en sortie
+  src.start(startAt); src.stop(startAt+dur+0.1);
+  src.onended=()=>{ try{src.disconnect(); g.disconnect();}catch(e){} };
+  const nextAt=startAt+dur-xf;                             // la boucle suivante démarre pendant le fondu
+  setTimeout(()=>scheduleAmbientLoop(nextAt), Math.max(50,(nextAt-audioCtx.currentTime-0.25)*1000));
 }
 function startEngine(){
   if(!audioCtx||engine) return;
@@ -405,13 +454,13 @@ function buildLevels(){
 }
 
 // ═══════════ ÉTAT ═══════════
-let scene,camera,renderer;
+let scene,camera,renderer,sunLight=null,hemiLight=null;
 let LEVELS=[],currentLevel=0;
 let mathErrors=0,hintsUsed=0,hintStep=0,submitLocked=false;
 let levelTasks=[],taskIndex=0;
 let COLS,ROWS,PS=2.4;
 let parcels=[],fieldGroup,decorGroup,shapePoly=[];
-let crops=[],grains=[],pops=[],toolAnim=null,dimAnnos=null;
+let crops=[],grains=[],pops=[],toolAnim=null,fuelAnim=null,dimAnnos=null;
 let walls=[],gate=null;
 let tractor=null,toolStations=[],cistern=null,diagonalMesh=null,guideGroup=null;
 let taskActive=false,levelDone=false,workMode='rows';
@@ -429,20 +478,87 @@ addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 
 // ═══════════ THREE ═══════════
 function initThree(){
-  scene=new THREE.Scene(); scene.background=new THREE.Color(0xaadcf2);
-  scene.fog=new THREE.Fog(0xbfe6f5,75,165);
-  camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,0.1,300);
+  scene=new THREE.Scene();
+  scene.fog=new THREE.Fog(0xcfe9f3,90,240);
+  camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,0.1,900);
   renderer=new THREE.WebGLRenderer({antialias:true,canvas:document.getElementById('gameCanvas')});
   renderer.setSize(innerWidth,innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-  scene.add(new THREE.HemisphereLight(0xdcf0ff,0x5a7a38,0.95));
-  const sun=new THREE.DirectionalLight(0xfff6e0,1.15); sun.position.set(-22,34,18); sun.castShadow=true;
-  sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.left=-55;sun.shadow.camera.right=55;
-  sun.shadow.camera.top=55;sun.shadow.camera.bottom=-55;sun.shadow.camera.far=110;sun.shadow.bias=-0.0004;
+  renderer.outputEncoding=THREE.sRGBEncoding;
+  renderer.toneMapping=THREE.CineonToneMapping;
+  renderer.toneMappingExposure=0.45;
+  // ciel en dégradé (dôme)
+  scene.add(makeSkyDome());
+  // lumières : clé chaude + remplissage froid + ambiance ciel/sol
+  hemiLight=new THREE.HemisphereLight(0x9ec8f0,0x556a30,0.30); scene.add(hemiLight);
+  const sun=new THREE.DirectionalLight(0xfff0d0,0.75); sunLight=sun; sun.position.set(-26,42,22); sun.castShadow=true;
+  sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.left=-58;sun.shadow.camera.right=58;
+  sun.shadow.camera.top=58;sun.shadow.camera.bottom=-58;sun.shadow.camera.far=130;sun.shadow.bias=-0.0004; sun.shadow.radius=4;
   scene.add(sun);
+  const fill=new THREE.DirectionalLight(0xbfd6ff,0.22); fill.position.set(24,20,-18); scene.add(fill);
   addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
   setupCameraControls();
+  setupRenderSettings();
   animate();
+}
+// ── Texture d'herbe procédurale (mouchetée, sans fichier externe) ──
+let _grassTex=null;
+function getGrassTexture(){
+  if(_grassTex) return _grassTex;
+  const size=512, c=document.createElement('canvas'); c.width=c.height=size; const g=c.getContext('2d');
+  g.fillStyle='#5c8a3a'; g.fillRect(0,0,size,size);
+  // grandes taches douces (variations de teinte)
+  for(let i=0;i<70;i++){
+    const x=Math.random()*size, y=Math.random()*size, r=30+Math.random()*70;
+    const tone=Math.random()<0.5?'rgba(88,138,52,0.35)':'rgba(112,158,70,0.3)';
+    const grd=g.createRadialGradient(x,y,0,x,y,r); grd.addColorStop(0,tone); grd.addColorStop(1,'rgba(0,0,0,0)');
+    g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,6.283); g.fill();
+  }
+  // brins/mouchetures fines
+  for(let i=0;i<2200;i++){
+    const x=Math.random()*size, y=Math.random()*size;
+    const dark=Math.random()<0.5;
+    g.fillStyle=dark?'rgba(58,92,32,0.5)':'rgba(150,190,100,0.35)';
+    g.fillRect(x,y,1+Math.random()*1.5,2+Math.random()*3);
+  }
+  const tex=new THREE.CanvasTexture(c);
+  tex.wrapS=tex.wrapT=THREE.RepeatWrapping; tex.repeat.set(26,26); tex.anisotropy=4;
+  _grassTex=tex; return tex;
+}
+function makeSkyDome(){
+  const geo=new THREE.SphereGeometry(500,24,16);
+  const top=new THREE.Color(0x4f97d8), hor=new THREE.Color(0xdff0f7), below=new THREE.Color(0xbfd9a8);
+  const pos=geo.attributes.position, col=[];
+  for(let i=0;i<pos.count;i++){
+    const y=Math.max(-1,Math.min(1,pos.getY(i)/500));
+    let c;
+    if(y>=0){ const t=Math.pow(y,0.55); c=hor.clone().lerp(top,t); }
+    else { const t=Math.min(1,-y*3); c=hor.clone().lerp(below,t); }   // sous l'horizon : ton terreux, jamais noir
+    col.push(c.r,c.g,c.b);
+  }
+  geo.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  return new THREE.Mesh(geo,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.BackSide,fog:false,depthWrite:false,toneMapped:false}));
+}
+function makeSkyEquirect(){
+  const c=document.createElement('canvas'); c.width=256; c.height=128; const g=c.getContext('2d');
+  const grd=g.createLinearGradient(0,0,0,128);
+  grd.addColorStop(0,'#3f86cf'); grd.addColorStop(0.55,'#bfe2f2'); grd.addColorStop(0.75,'#dff0e6'); grd.addColorStop(1,'#89a85a');
+  g.fillStyle=grd; g.fillRect(0,0,256,128);
+  const t=new THREE.CanvasTexture(c); t.needsUpdate=true; return t;
+}
+// ── Ombres de contact (occlusion douce sous les objets) ──
+let _shadowTex=null;
+function contactShadowTex(){
+  if(_shadowTex) return _shadowTex;
+  const c=document.createElement('canvas'); c.width=c.height=128; const g=c.getContext('2d');
+  const grd=g.createRadialGradient(64,64,0,64,64,64);
+  grd.addColorStop(0,'rgba(0,0,0,0.4)'); grd.addColorStop(0.55,'rgba(0,0,0,0.2)'); grd.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=grd; g.fillRect(0,0,128,128); _shadowTex=new THREE.CanvasTexture(c); return _shadowTex;
+}
+function makeGroundShadow(x,z,r){
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(r*2,r*2),
+    new THREE.MeshBasicMaterial({map:contactShadowTex(),transparent:true,depthWrite:false,toneMapped:false}));
+  m.rotation.x=-Math.PI/2; m.position.set(x,0.03,z); return m;
 }
 // ── Contrôle caméra à la souris (orbite / zoom / pan) ──
 function setupCameraControls(){
@@ -468,6 +584,26 @@ function setupCameraControls(){
   },{passive:false});
 }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+// ── Panneau de réglages rendu (live) ──
+const TM_MODES={aces:THREE.ACESFilmicToneMapping,reinhard:THREE.ReinhardToneMapping,cineon:THREE.CineonToneMapping,linear:THREE.LinearToneMapping,none:THREE.NoToneMapping};
+let tmName='cineon';
+function refreshMaterials(){ if(scene) scene.traverse(o=>{ if(o.material){ (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate=true); } }); }
+function rsUpdateOut(){
+  const e=document.getElementById('rs-exp').value, s=document.getElementById('rs-sun').value, a=document.getElementById('rs-amb').value;
+  document.getElementById('rs-out').textContent=`TM ${tmName} · expo ${(+e).toFixed(2)} · soleil ${(+s).toFixed(2)} · amb ${(+a).toFixed(2)}`;
+}
+function toggleRSettings(){ const p=document.getElementById('rsettings'); p.style.display=(p.style.display==='block')?'none':'block'; }
+function setupRenderSettings(){
+  const exp=document.getElementById('rs-exp'), sn=document.getElementById('rs-sun'), amb=document.getElementById('rs-amb');
+  exp.oninput=()=>{ if(renderer) renderer.toneMappingExposure=parseFloat(exp.value); document.getElementById('rs-exp-v').textContent=(+exp.value).toFixed(2); rsUpdateOut(); };
+  sn.oninput=()=>{ if(sunLight) sunLight.intensity=parseFloat(sn.value); document.getElementById('rs-sun-v').textContent=(+sn.value).toFixed(2); rsUpdateOut(); };
+  amb.oninput=()=>{ if(hemiLight) hemiLight.intensity=parseFloat(amb.value); document.getElementById('rs-amb-v').textContent=(+amb.value).toFixed(2); rsUpdateOut(); };
+  document.querySelectorAll('#rsettings [data-tm]').forEach(b=>{ b.onclick=()=>{
+    if(!renderer) return;
+    tmName=b.dataset.tm; renderer.toneMapping=TM_MODES[tmName]; refreshMaterials();
+    document.querySelectorAll('#rsettings [data-tm]').forEach(x=>x.classList.remove('on')); b.classList.add('on'); rsUpdateOut();
+  };});
+}
 function applyCamera(){
   const s=camOrbit;
   camera.position.set(
@@ -514,6 +650,7 @@ function buildScene(){
   [fieldGroup,decorGroup,guideGroup,diagonalMesh,dimAnnos].forEach(o=>o&&scene.remove(o));
   if(tractor) scene.remove(tractor.group);
   diagonalMesh=null; dimAnnos=null; parcels=[]; fenceSegments=[]; fencePlantedCount=0;
+  if(fuelAnim){ scene.remove(fuelAnim.grp); fuelAnim=null; } if(toolAnim) toolAnim=null;
   crops=[]; pops=[]; grains.forEach(x=>scene.remove(x)); grains=[];
   COLS=9; ROWS=7;                          // champ agrandi (+1 case par côté)
   const fw=COLS*PS, fh=ROWS*PS, hx=fw/2, hz=fh/2;
@@ -524,7 +661,8 @@ function buildScene(){
 
   // ── DÉCOR ──
   decorGroup=new THREE.Group();
-  const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({color:0x4f7330,roughness:1}));
+  const grassTex=getGrassTexture();
+  const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({map:grassTex,roughness:1}));
   ground.rotation.x=-Math.PI/2; ground.position.y=-0.05; ground.receiveShadow=true; decorGroup.add(ground);
   const dirt=new THREE.Mesh(new THREE.PlaneGeometry(fw+10,fh+10),new THREE.MeshStandardMaterial({color:0x6a5733,roughness:1}));
   dirt.rotation.x=-Math.PI/2; dirt.position.y=-0.02; dirt.receiveShadow=true; decorGroup.add(dirt);
@@ -534,15 +672,23 @@ function buildScene(){
   buildLandscape(decorGroup,hx,hz,minZ);
   scene.add(decorGroup);
 
-  // ── PARCELLES ──
+  // ── PARCELLES (cellules carrées à l'intérieur, découpées au contour sur les bords) ──
   fieldGroup=new THREE.Group();
+  const ws=polySignedArea(shapePoly)>=0?1:-1;
   for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
-    const x=x0+c*PS, z=z0+r*PS;
-    if(!pointInPoly(x,z,shapePoly)) continue;
-    const mesh=makeParcel(lvl.work); mesh.position.set(x,0,z); mesh.receiveShadow=true; fieldGroup.add(mesh);
-    const p={mesh,done:false,x,z,work:lvl.work,crop:null};
+    const cx=x0+c*PS, cz=z0+r*PS;
+    const clip=clipCell(cx,cz,shapePoly,ws);
+    if(!clip) continue;
+    const area=polyArea(clip);
+    if(area < PS*PS*0.06) continue;                       // éclat trop petit → ignoré
+    const full = clip.length===4 && area > PS*PS*0.985;
+    let mesh, px, pz;
+    if(full){ mesh=makeParcel(lvl.work); mesh.position.set(cx,0,cz); px=cx; pz=cz; }
+    else { mesh=makePolyParcel(clip, lvl.work); let sx=0,sz=0; clip.forEach(pt=>{sx+=pt.x;sz+=pt.z;}); px=sx/clip.length; pz=sz/clip.length; }
+    mesh.receiveShadow=true; fieldGroup.add(mesh);
+    const p={mesh,done:false,x:px,z:pz,work:lvl.work,crop:null};
     if(lvl.work==='harvest'){
-      const tuft=makeWheatTuft(); tuft.position.set(x,0.1,z); fieldGroup.add(tuft);
+      const tuft=makeWheatTuft(); tuft.position.set(px,0.1,pz); fieldGroup.add(tuft);
       const c2={group:tuft,phase:Math.random()*6.28,cutting:false,cutT:0};
       p.crop=c2; crops.push(c2);
     }
@@ -561,11 +707,11 @@ function buildScene(){
   toolStations=[];
   buildToolYard(decorGroup, hx+5.5, 0, lvl.tool);
   cistern={x:gx, z:minZ-6.5};
-  decorGroup.add(makeCistern(cistern.x,cistern.z));
+  decorGroup.add(makeCistern(cistern.x,cistern.z)); decorGroup.add(makeGroundShadow(cistern.x,cistern.z,1.9));
 
   // ── HANGAR + TRACTEUR (à gauche, ouverture vers le champ) ──
   const garageX=-hx-4.5, garageZ=minZ-2;
-  decorGroup.add(makeHangar(garageX,garageZ,+1));
+  decorGroup.add(makeHangar(garageX,garageZ,+1)); decorGroup.add(makeGroundShadow(garageX,garageZ,3.4));
   tractor={group:makeTractor(),x:garageX+4,z:garageZ,heading:Math.PI/2,tool:null,toolLocked:false,
            refueled:(currentLevel>=1?false:true),wheelSpin:0,smoke:[],toolMesh:null};
   tractor.group.position.set(tractor.x,0,tractor.z); tractor.group.rotation.y=tractor.heading; scene.add(tractor.group);
@@ -614,7 +760,7 @@ function makeBush(x,z){
 }
 function makeCistern(x,z){
   const g=new THREE.Group();
-  const red=new THREE.MeshStandardMaterial({color:0xd9412e,metalness:.2,roughness:.55});
+  const red=new THREE.MeshStandardMaterial({color:0xf24a30,metalness:.15,roughness:.5,emissive:0x4a1208,emissiveIntensity:0.4});
   const tank=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,3.0,20),red);
   tank.rotation.z=Math.PI/2; tank.position.y=1.5; tank.castShadow=true; g.add(tank);
   [-1.5,1.5].forEach(dx=>{const cap=new THREE.Mesh(new THREE.SphereGeometry(1.0,16,12),red); cap.scale.set(0.5,1,1); cap.position.set(dx,1.5,0); cap.castShadow=true; g.add(cap);});
@@ -645,7 +791,7 @@ function makeHangar(x,z,dir){
 }
 function makeBarn(x,z,rot=0){
   const g=new THREE.Group();
-  const redMat=new THREE.MeshStandardMaterial({color:0xc0392b,roughness:.85});
+  const redMat=new THREE.MeshStandardMaterial({color:0xd8402c,roughness:.8,emissive:0x3a0d08,emissiveIntensity:0.35});
   const body=new THREE.Mesh(new THREE.BoxGeometry(6,3.2,4.4),redMat);
   body.position.y=1.6; body.castShadow=true; body.receiveShadow=true; g.add(body);
   // toit arrondi (demi-cylindre) tan clair
@@ -771,14 +917,15 @@ function buildLandscape(group,hx,hz,minZ){
   ambSmoke.forEach(m=>scene.remove(m)); ambSmoke=[]; smokeTimer=0;
   birds.forEach(b=>scene.remove(b)); birds=[]; birdTimer=6;
   const fx=-hx-11, fz=minZ-2, frot=0.5;
-  group.add(makeFarmhouse(fx,fz,frot));
+  group.add(makeFarmhouse(fx,fz,frot)); group.add(makeGroundShadow(fx,fz,4.2));
   const lx=1.5,lz=0.7;
   smokeSources.push({x:fx+lx*Math.cos(frot)+lz*Math.sin(frot), y:5.4, z:fz-lx*Math.sin(frot)+lz*Math.cos(frot)});
-  group.add(makeBarn(hx+12,-2,-0.4));
-  group.add(makeSilo(hx+9,6)); group.add(makeSilo(hx+11.5,6.5));
-  group.add(makeWindmill(-hx-14,10));
+  group.add(makeBarn(hx+12,-2,-0.4)); group.add(makeGroundShadow(hx+12,-2,4.6));
+  group.add(makeSilo(hx+9,6)); group.add(makeSilo(hx+11.5,6.5)); group.add(makeGroundShadow(hx+10.2,6.2,2.4));
+  group.add(makeWindmill(-hx-14,10)); group.add(makeGroundShadow(-hx-14,10,1.6));
   group.add(makePond(hx+16,-14));
   group.add(makeHayBale(hx+4,minZ-8)); group.add(makeHayBale(hx+5.6,minZ-8.4)); group.add(makeHayBale(hx+4.8,minZ-9.6));
+  group.add(makeGroundShadow(hx+4.8,minZ-8.5,1.6));
   // poules près de la grange
   [[hx+9,-4.5],[hx+10.5,-1.5],[hx+13,-3.5],[hx+8,-2]].forEach(p=>{const h=makeHen(p[0],p[1]); group.add(h); hens.push({g:h,phase:Math.random()*6.28,bx:p[0],bz:p[1]});});
   // arbres variés en périphérie (mémorisés pour le balancement)
@@ -786,8 +933,8 @@ function buildLandscape(group,hx,hz,minZ){
     [hx+15,hz+4],[hx+18,hz-8],[-hx-6,hz+9],[6,hz+11],[-8,hz+12],[-hx-18,-2],[hx+20,2],[0,-hz-16]];
   spots.forEach((p,i)=>{ const r=i%3; const tree=(r===0?makePine(p[0],p[1],0.9+Math.random()*0.4)
       : makeTree(p[0],p[1],0.85+Math.random()*0.5, r===1?0x5aa538:0x6cb840));
-      group.add(tree); trees.push({g:tree,phase:Math.random()*6.28,amp:0.02+Math.random()*0.02}); });
-  [[-hx-4,hz+7],[hx+6,hz+8],[-hx-8,-hz-2],[hx+3,-hz-5],[10,hz+9]].forEach(p=>group.add(makeBush(p[0],p[1])));
+      group.add(tree); group.add(makeGroundShadow(p[0],p[1],1.5)); trees.push({g:tree,phase:Math.random()*6.28,amp:0.02+Math.random()*0.02}); });
+  [[-hx-4,hz+7],[hx+6,hz+8],[-hx-8,-hz-2],[hx+3,-hz-5],[10,hz+9]].forEach(p=>{group.add(makeBush(p[0],p[1])); group.add(makeGroundShadow(p[0],p[1],0.9));});
 }
 function spawnChimneySmoke(s){
   const m=new THREE.Mesh(new THREE.SphereGeometry(0.32,8,8),new THREE.MeshStandardMaterial({color:0xf0f0f0,transparent:true,opacity:.5,roughness:1}));
@@ -805,8 +952,6 @@ function updateAmbient(dt){
   // canards
   ducks.forEach(d=>{ d.g.position.x=d.bx+Math.sin(t*0.3+d.phase)*0.6; d.g.position.z=d.bz+Math.cos(t*0.25+d.phase)*0.5;
     d.g.position.y=0.08+Math.sin(t*1.4+d.phase)*0.04; d.g.rotation.y+=dt*0.15; });
-  // nuages
-  clouds.forEach(c=>{ c.position.x+=c.userData.speed*dt; if(c.position.x>46) c.position.x=-46; });
   // balancement des arbres
   trees.forEach(tr=>{ tr.g.rotation.z=Math.sin(t*1.1+tr.phase)*tr.amp; tr.g.rotation.x=Math.cos(t*0.9+tr.phase)*tr.amp*0.6; });
   // poules qui picorent
@@ -831,6 +976,36 @@ function makeParcel(work){
   const m=new THREE.Mesh(new THREE.BoxGeometry(PS*0.97,h,PS*0.97),new THREE.MeshStandardMaterial({color:parcelColor(work,false),roughness:1}));
   m.position.y=h/2; return m;
 }
+// ── Découpe d'une cellule carrée au contour (Sutherland-Hodgman, polygone convexe) ──
+function polySignedArea(poly){ let s=0; for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length]; s+=a.x*b.z-b.x*a.z;} return s/2; }
+function polyArea(pts){ return Math.abs(polySignedArea(pts)); }
+function _inside(P,A,B,ws){ return ((B.x-A.x)*(P.z-A.z)-(B.z-A.z)*(P.x-A.x))*ws >= -1e-6; }
+function _isect(P,Q,A,B){
+  const rx=Q.x-P.x, rz=Q.z-P.z, sx=B.x-A.x, sz=B.z-A.z, d=rx*sz-rz*sx;
+  const t=((A.x-P.x)*sz-(A.z-P.z)*sx)/d;
+  return {x:P.x+t*rx, z:P.z+t*rz};
+}
+function clipCell(cx,cz,poly,ws){
+  let sub=[{x:cx-PS/2,z:cz-PS/2},{x:cx+PS/2,z:cz-PS/2},{x:cx+PS/2,z:cz+PS/2},{x:cx-PS/2,z:cz+PS/2}];
+  for(let i=0;i<poly.length && sub.length;i++){
+    const A=poly[i], B=poly[(i+1)%poly.length], out=[];
+    for(let j=0;j<sub.length;j++){
+      const P=sub[j], Q=sub[(j+1)%sub.length], ip=_inside(P,A,B,ws), iq=_inside(Q,A,B,ws);
+      if(ip){ out.push(P); if(!iq) out.push(_isect(P,Q,A,B)); }
+      else if(iq){ out.push(_isect(P,Q,A,B)); }
+    }
+    sub=out;
+  }
+  return sub.length>=3 ? sub : null;
+}
+// Parcelle plate épousant un polygone (cellule de bord découpée)
+function makePolyParcel(pts, work){
+  const y=0.06, geo=new THREE.BufferGeometry(), v=[], idx=[];
+  pts.forEach(p=>v.push(p.x,y,p.z));
+  for(let i=1;i<pts.length-1;i++) idx.push(0,i,i+1);
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(v,3)); geo.setIndex(idx); geo.computeVertexNormals();
+  return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:parcelColor(work,false),roughness:1,side:THREE.DoubleSide}));
+}
 // Touffe de blé (épis + têtes) posée sur une parcelle de moisson
 function makeWheatTuft(){
   const g=new THREE.Group(), n=4;
@@ -845,8 +1020,7 @@ function makeWheatTuft(){
   return g;
 }
 function setParcelDone(p){
-  p.mesh.geometry.dispose(); p.mesh.geometry=new THREE.BoxGeometry(PS*0.97,0.08,PS*0.97);
-  p.mesh.position.y=0.04; p.mesh.material.color.setHex(parcelColor(p.work,true));
+  p.mesh.material.color.setHex(parcelColor(p.work,true));
   if(p.work==='harvest' && p.crop && !p.crop.cutting){ p.crop.cutting=true; grainBurst(p.x,p.z,7); }
   else if(p.work==='plow'){ const f=makeFurrows(); f.position.set(p.x,0.08,p.z); fieldGroup.add(f); addPop(f); }
   else if(p.work==='seed'){ const s=makeSprouts(); s.position.set(p.x,0.08,p.z); fieldGroup.add(s); addPop(s); }
@@ -1045,7 +1219,7 @@ function makeTool(type,w,onGround){
 function animate(){
   requestAnimationFrame(animate);
   const now=performance.now(), dt=Math.min((now-lastTime)/1000,0.05); lastTime=now;
-  updateTractor(dt); updateEffects(dt); updateCrops(dt); updateGrains(dt); updatePops(dt); updateToolAnim(dt);
+  updateTractor(dt); updateEffects(dt); updateCrops(dt); updateGrains(dt); updatePops(dt); updateToolAnim(dt); updateFuelAnim(dt);
   if(camIntro) updateCameraIntro(dt);
   else if(camMode==='driver' && tractor){ const d=driverPose(); camera.position.lerp(d.pos,0.18); camera.lookAt(d.look); }
   else if(camMode==='toDriver' && tractor){
@@ -1062,7 +1236,7 @@ function animate(){
 function lerpAngle(a,b,t){let d=b-a;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return a+d*t;}
 
 function updateTractor(dt){
-  if(!tractor||!taskActive||levelDone||camIntro||toolAnim) return;
+  if(!tractor||!taskActive||levelDone||camIntro||toolAnim||fuelAnim) return;
   if(document.getElementById('modal-info').classList.contains('active')) return;
   const t=tractor;
   let v=0,turn=0;
@@ -1083,7 +1257,7 @@ function updateTractor(dt){
   t.group.position.set(t.x,0,t.z); t.group.rotation.y=t.heading;
   if(mv!==0){ t.wheelSpin+=mv*1.8; t.group.userData.wheels.forEach(w=>w.rotation.x=t.wheelSpin);
     t.group.position.y=Math.sin(t.wheelSpin*3)*0.012; if(Math.random()<0.5) spawnSmoke(t); }
-  tryLoadTool();
+  tryLoadTool(v<0);
   const need=LEVELS[currentLevel].tool;
   if(t.tool===need){
     if(!t.refueled) tryRefuel();
@@ -1091,8 +1265,39 @@ function updateTractor(dt){
   }
 }
 function tryRefuel(){
-  if(!cistern) return;
+  if(!cistern || fuelAnim) return;
   if(Math.hypot(tractor.x-cistern.x,tractor.z-cistern.z)<3.6){
+    startRefuelAnim();
+  }
+}
+// Animation ~2 s : pistolet + tuyau de la pompe vers le tracteur
+function startRefuelAnim(){
+  const px=cistern.x+1.95, py=1.0, pz=cistern.z;      // buse de la pompe
+  const Rx=Math.cos(tractor.heading), Rz=-Math.sin(tractor.heading);   // côté droit du tracteur
+  const s=(Rx*(px-tractor.x)+Rz*(pz-tractor.z))>=0?1:-1;               // côté tourné vers la pompe
+  const off=0.9, nx=tractor.x+Rx*off*s, ny=1.15, nz=tractor.z+Rz*off*s; // orifice sur le flanc
+  const grp=new THREE.Group();
+  const dark=new THREE.MeshStandardMaterial({color:0x1a1a1a,roughness:.85});
+  const dx=nx-px, dy=ny-py, dz=nz-pz, len=Math.hypot(dx,dy,dz);
+  const hose=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,len,8),dark);
+  hose.position.set((px+nx)/2,(py+ny)/2,(pz+nz)/2);
+  hose.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(dx,dy,dz).normalize());
+  grp.add(hose);
+  const gun=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.42),dark); gun.position.set(nx,ny,nz); grp.add(gun);
+  const trig=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.24,0.1),new THREE.MeshStandardMaterial({color:0xd83a2a,roughness:.7}));
+  trig.position.set(nx,ny-0.16,nz-0.12); grp.add(trig);
+  scene.add(grp);
+  fuelAnim={grp,t:0,dur:2.0};
+  setObjective("⛽ Remplissage du réservoir…");
+  flashTip("⛽ Remplissage du réservoir…");
+  playToolSound('seed');  // léger « souffle » de remplissage
+}
+function updateFuelAnim(dt){
+  if(!fuelAnim) return;
+  fuelAnim.t+=dt;
+  fuelAnim.grp.position.y=Math.sin(fuelAnim.t*22)*0.012;   // légère vibration
+  if(fuelAnim.t>=fuelAnim.dur){
+    scene.remove(fuelAnim.grp); fuelAnim=null;
     tractor.refueled=true;
     setObjective("🚜 Entre par le portail et travaille tout le champ.");
     showInfo('🚜','Plein effectué !',"Le réservoir est plein. Entre dans le champ par le <b>portail</b> et travaille toute la parcelle !",()=>startDriverView());
@@ -1116,18 +1321,19 @@ function canBeAt(x,z){
   for(const w of walls){ if(pointSegDist(x,z,w.ax,w.az,w.bx,w.bz)<TRACT_R) return false; }
   return true;
 }
-function tryLoadTool(){
-  if(tractor.toolLocked) return;                        // bon outil déjà verrouillé
+function tryLoadTool(reversing){
+  if(tractor.toolLocked || !reversing) return;           // ne s'attelle qu'en marche arrière
   const need=LEVELS[currentLevel].tool;
+  const rd=1.8, rx=tractor.x-Math.sin(tractor.heading)*rd, rz=tractor.z-Math.cos(tractor.heading)*rd;  // point d'attelage (arrière)
   let near=null, bd=LOAD_R;
-  for(const s of toolStations){ const d=Math.hypot(tractor.x-s.x,tractor.z-s.z); if(d<bd){ bd=d; near=s; } }
-  if(!near || tractor.tool===near.type) return;         // rien à proximité, ou déjà cet outil
+  for(const s of toolStations){ const d=Math.hypot(rx-s.x,rz-s.z); if(d<bd){ bd=d; near=s; } }
+  if(!near || tractor.tool===near.type) return;         // rien derrière, ou déjà cet outil
   if(tractor.toolMesh){ tractor.group.userData.anchor.remove(tractor.toolMesh); tractor.toolMesh=null; }
   tractor.tool=near.type;
   document.getElementById('hud-tool').textContent='Outil : '+TOOL_LABEL[near.type];
   if(near.type===need){
     tractor.toolLocked=true;                            // verrouillé : plus de changement par erreur
-    flashTip(`🔧 Accrochage de la <b>${TOOL_LABEL[near.type]}</b>…`);
+    flashTip(`🔧 Attelage de la <b>${TOOL_LABEL[near.type]}</b>…`);
     attachToolAnimated(near.type, ()=>{
       if(tractor.refueled){
         const msg = workMode==='fence' ? "Entre dans le champ et fais le <b>tour complet</b> pour poser la clôture."
@@ -1137,14 +1343,14 @@ function tryLoadTool(){
       } else {
         setObjective("⛽ Va faire le plein à la citerne (bas, au centre).");
         showInfo('⛽','Fais le plein !',
-          "Bon outil accroché ! Avant de travailler, va faire le <b>plein de gasoil</b> à la <b>citerne</b>, en bas au centre du champ.",
+          "Bon outil attelé ! Avant de travailler, va faire le <b>plein de gasoil</b> à la <b>citerne</b>, en bas au centre du champ.",
           null, "Compris");
       }
     });
   } else {
     const tm=makeTool(near.type,1.9,false); tractor.group.userData.anchor.add(tm); tractor.toolMesh=tm;
     setObjective(`🔧 Mauvais outil. Il te faut : ${TOOL_LABEL[need]}.`);
-    flashTip(`Ce n'est pas le bon outil pour cette tâche. Il te faut la <b>${TOOL_LABEL[need]}</b> — va te positionner dessus.`);
+    flashTip(`Ce n'est pas le bon outil pour cette tâche. Il te faut la <b>${TOOL_LABEL[need]}</b> — recule dessus.`);
   }
 }
 // Petite animation : l'outil descend et se cale à l'arrière du tracteur
@@ -1254,7 +1460,7 @@ function loadLevel(){
   buildScene();
   document.getElementById('hud-level').textContent=lvl.name;
   document.getElementById('hud-tool').textContent='Sans outil';
-  document.getElementById('dim-badge').innerHTML=`${SHAPE_GEOM.badge}<br>${SHAPE_GEOM.area_m2} m²`;
+  document.getElementById('dim-badge').innerHTML=`${SHAPE_GEOM.badge}`;
   setObjective("Réponds au calcul pour lancer la tâche.");
   updateProgress();
   if(!introPlayed){ introPlayed=true; startCameraIntro(()=>showTask()); } else showTask();
@@ -1307,10 +1513,10 @@ function afterAnswer(){
 function startTask(){
   taskActive=true;
   const need=TOOL_LABEL[LEVELS[currentLevel].tool];
-  setObjective(`🔧 Va chercher : ${need}${currentLevel>=1?" + plein de gasoil":""}.`);
+  setObjective(`🔧 Recule sur : ${need}${currentLevel>=1?" + plein de gasoil":""}.`);
   const fuelNote=(currentLevel>=1)?" Ensuite, passe à la <b>citerne</b> (bas, au centre) pour faire le <b>plein</b>." : "";
   showInfo('🔧','À toi de jouer !',
-    `Pilote le tracteur jusqu'à la <b>station d'outils</b> (à droite) et positionne-toi sur le bon outil : la <b>${need}</b>.${fuelNote}`,
+    `Pilote le tracteur jusqu'à la <b>station d'outils</b> (à droite) et <b>recule</b> sur le bon outil pour l'atteler : la <b>${need}</b>.${fuelNote}`,
     null);
 }
 function drawDiagonal(){
