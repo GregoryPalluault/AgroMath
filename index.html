@@ -389,9 +389,9 @@ function buildLevels(){
 
    {name:"TRAVAIL N°2 · LABOUR", work:"plow", tool:"plow",
     tasks:[
-      clone(g.area,{intro:"Champ clôturé ! Place au labour. Relève d'abord la surface à travailler."}),
+      clone(g.area,{intro:"Champ clôturé ! Place au labour. Calcule d'abord la surface à travailler."}),
       {tag:"Proportionnalité · Fioul",unit:"L",action:"fuel",
-       schema:`Consommation = ${fmt(P.conso)} L pour 1 000 m²\n  Surface : celle que tu viens de calculer`,
+       schema:`Consommation = ${fmt(P.conso)} L pour 1 000 m²\n  Surface = ${a} m²`,
        text:"Fioul nécessaire pour labourer tout le champ ?",
        intro:"Estime le carburant nécessaire. Ensuite, va chercher la charrue et laboure toute la parcelle.",
        hints:["Combien de fois 1 000 m² dans la surface ?","fioul = consommation × (surface ÷ 1 000)."],
@@ -412,7 +412,7 @@ function buildLevels(){
     tasks:[
       clone(g.area,{intro:"La moisson commence. Relève d'abord la surface à récolter."}),
       {tag:"Proportionnalité · Rendement",unit:"kg",
-       schema:`Rendement = ${P.rend} kg pour 1 000 m²\n  Surface : celle que tu viens de calculer`,
+       schema:`Rendement = ${P.rend} kg pour 1 000 m²\n  Surface = ${a} m²`,
        text:"Récolte totale attendue, en kg ?",
        intro:"Estime la récolte totale à partir du rendement.",
        hints:["Combien de fois 1 000 m² dans la surface ?","récolte = rendement × (surface ÷ 1 000)."],
@@ -424,7 +424,7 @@ function buildLevels(){
        hints:["Remplace x par la surface dans C.",`C(x) = ${P.cA} × x + ${P.cB}.`],
        answer:P.cout,sol:`${P.cA} × ${a} + ${P.cB} = ${fmt(P.cout)} €`}] : []),
       {tag:"Proportionnalité · Durée",unit:"h",integer:true,
-       schema:`Débit de moisson = ${P.debitH} m²/h\n  Surface : celle que tu viens de calculer`,
+       schema:`Débit de moisson = ${P.debitH} m²/h\n  Surface = ${a} m²`,
        text:"Durée de la moisson, en heures ?",
        intro:"Dernier calcul avant de moissonner : estime la durée du chantier. Ensuite, va chercher la moissonneuse, fais le plein et récolte.",
        hints:["Durée = surface ÷ débit.","Le résultat est un nombre entier d'heures."],
@@ -442,7 +442,7 @@ let COLS,ROWS,PS=2.4;
 let parcels=[],fieldGroup,decorGroup,shapePoly=[];
 let crops=[],grains=[],pops=[],toolAnim=null,fuelAnim=null,dimAnnos=null,pythTri=null;
 let walls=[],gate=null;
-let tractor=null,toolStations=[],cistern=null,diagonalMesh=null,guideGroup=null;
+let tractor=null,toolStations=[],cistern=null,cisternLabel=null,diagonalMesh=null,guideGroup=null;
 let taskActive=false,levelDone=false,workMode='rows';
 let fenceSegments=[],fencePlantedCount=0;
 let introPlayed=false,camIntro=null,cameraTarget=new THREE.Vector3();
@@ -771,7 +771,8 @@ function makeCistern(x,z){
   const nozzle=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.9,6),toonMat(0x111111));
   nozzle.position.set(2.2,1.0,0); nozzle.rotation.z=0.5; g.add(nozzle);
   addToonOutline(g);
-  const label=makeTextSprite('GASOIL'); label.position.set(0,3.0,0); g.add(label);
+  const label=makeTextSprite('GASOIL'); label.position.set(0,3.0,0); label.visible=false; g.add(label);
+  cisternLabel=label;
   g.position.set(x,0,z); return g;
 }
 function makeHangar(x,z,dir){
@@ -942,7 +943,7 @@ function buildLandscape(group,hx,hz,minZ){
   windmills=[]; ducks=[]; clouds=[]; smokeSources=[]; trees=[]; hens=[];
   ambSmoke.forEach(m=>scene.remove(m)); ambSmoke=[]; smokeTimer=0;
   birds.forEach(b=>scene.remove(b)); birds=[]; birdTimer=6;
-  const fx=0, fz=hz+4.5, frot=Math.PI;   // face à la citerne, de l'autre côté du champ (côté opposé à l'entrée)
+  const fx=0, fz=hz+3, frot=Math.PI;   // reculée jusqu'à la limite de la terre (bord du chemin), face à la citerne
   group.add(makeFarmhouse(fx,fz,frot)); group.add(makeGroundShadow(fx,fz,4.2));
   const lx=1.5,lz=0.7;
   smokeSources.push({x:fx+lx*Math.cos(frot)+lz*Math.sin(frot), y:5.4, z:fz-lx*Math.sin(frot)+lz*Math.cos(frot)});
@@ -1180,11 +1181,12 @@ function buildToolYard(group, x, zc, needType){
     toolStations.push({type,x,z,label});
   }
 }
-// N'affiche le nom d'un outil que lorsque le tracteur s'en approche
+// N'affiche le nom d'un outil (ou de la citerne) que lorsque le tracteur s'en approche
 function updateToolLabels(){
   if(!tractor) return;
   const R=6.0;
   toolStations.forEach(s=>{ if(s.label) s.label.visible = Math.hypot(tractor.x-s.x,tractor.z-s.z) < R; });
+  if(cisternLabel && cistern) cisternLabel.visible = Math.hypot(tractor.x-cistern.x,tractor.z-cistern.z) < R;
 }
 
 // ── Tracteur ──
@@ -1581,15 +1583,15 @@ function showPythTriangle(){
   const P={x:Ap.x+t*ux, z:Ap.z+t*uz};
   const mat=new THREE.MeshStandardMaterial({color:0xe8402a,emissive:0x5a1208,emissiveIntensity:.55,roughness:.5});
   pythTri=new THREE.Group();
-  addBar(Bp.x,Bp.z,P.x,P.z,mat,pythTri,0.16);     // 1er côté (le long de la base)
-  addBar(P.x,P.z,Cp.x,Cp.z,mat,pythTri,0.16);     // 2e côté (la hauteur)
-  addBar(Bp.x,Bp.z,Cp.x,Cp.z,mat,pythTri,0.2);    // hypoténuse (le côté oblique cherché)
+  addBar(Bp.x,Bp.z,P.x,P.z,mat,pythTri,0.16,0.13);     // 1er côté (le long de la base)
+  addBar(P.x,P.z,Cp.x,Cp.z,mat,pythTri,0.16,0.13);     // 2e côté (la hauteur)
+  addBar(Bp.x,Bp.z,Cp.x,Cp.z,mat,pythTri,0.2,0.16);    // hypoténuse (le côté oblique cherché)
   // petit carré d'angle droit au sommet P
   const rs=0.55, rax=ux*rs, raz=uz*rs;
   const perp={x:Cp.x-P.x, z:Cp.z-P.z}, plen=Math.hypot(perp.x,perp.z)||1, pux=perp.x/plen, puz=perp.z/plen;
   const cornerGeo=new THREE.BufferGeometry();
   const p0=P, p1={x:P.x+rax,z:P.z+raz}, p2={x:P.x+rax+pux*rs,z:P.z+raz+puz*rs}, p3={x:P.x+pux*rs,z:P.z+puz*rs};
-  cornerGeo.setAttribute('position',new THREE.Float32BufferAttribute([p0.x,0.45,p0.z, p1.x,0.45,p1.z, p2.x,0.45,p2.z, p3.x,0.45,p3.z],3));
+  cornerGeo.setAttribute('position',new THREE.Float32BufferAttribute([p0.x,0.14,p0.z, p1.x,0.14,p1.z, p2.x,0.14,p2.z, p3.x,0.14,p3.z],3));
   cornerGeo.setIndex([0,1,2, 0,2,3]); cornerGeo.computeVertexNormals();
   const corner=new THREE.Mesh(cornerGeo,new THREE.MeshStandardMaterial({color:0xe8402a,transparent:true,opacity:.5,side:THREE.DoubleSide}));
   pythTri.add(corner);
@@ -1605,7 +1607,7 @@ function drawDiagonal(){
   else { dx=COLS*PS; dz=ROWS*PS; mx=0; mz=0; }             // repli : diagonale du rectangle englobant
   const len=Math.hypot(dx,dz);
   diagonalMesh=new THREE.Mesh(new THREE.BoxGeometry(len,0.05,0.22),mat);
-  diagonalMesh.position.set(mx,0.14,mz); diagonalMesh.rotation.y=-Math.atan2(dz,dx); scene.add(diagonalMesh);
+  diagonalMesh.position.set(mx,0.14,mz); diagonalMesh.rotation.y=Math.atan2(dz,dx); scene.add(diagonalMesh);
 }
 // ── Côtes (dimensions) sur le champ ──
 function makeDimLabel(text){
@@ -1618,10 +1620,10 @@ function makeDimLabel(text){
   const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
   sp.scale.set(3.0,0.92,1); sp.renderOrder=999; return sp;
 }
-function addBar(ax,az,bx,bz,mat,grp,w){
+function addBar(ax,az,bx,bz,mat,grp,w,y){
   const len=Math.hypot(bx-ax,bz-az); if(len<0.02)return;
   const bar=new THREE.Mesh(new THREE.BoxGeometry(len,0.08,w),mat);
-  bar.position.set((ax+bx)/2,0.5,(az+bz)/2); bar.rotation.y=Math.atan2(bz-az,bx-ax); grp.add(bar);
+  bar.position.set((ax+bx)/2,y===undefined?0.5:y,(az+bz)/2); bar.rotation.y=Math.atan2(bz-az,bx-ax); grp.add(bar);
 }
 function makeDimEdge(A,B,off,text,grp){
   const s=1.4, ox=off.x*s, oz=off.z*s;
