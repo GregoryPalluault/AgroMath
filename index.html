@@ -683,8 +683,8 @@ function buildScene(){
   cistern={x:gx, z:minZ-6.5};
   decorGroup.add(makeCistern(cistern.x,cistern.z)); decorGroup.add(makeGroundShadow(cistern.x,cistern.z,1.9));
 
-  // ── HANGAR + TRACTEUR (à gauche, ouverture vers le champ) ──
-  const garageX=-hx-4.5, garageZ=minZ-2;
+  // ── HANGAR + TRACTEUR (côté opposé aux outils, aligné en face d'eux, à bonne distance du champ) ──
+  const garageX=-hx-8, garageZ=0;
   decorGroup.add(makeHangar(garageX,garageZ,+1)); decorGroup.add(makeGroundShadow(garageX,garageZ,3.4));
   tractor={group:makeTractor(),x:garageX+4,z:garageZ,heading:Math.PI/2,tool:null,toolLocked:false,
            refueled:(currentLevel>=1?false:true),wheelSpin:0,smoke:[],toolMesh:null};
