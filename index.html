@@ -369,7 +369,7 @@ const SHAPE_DEFS={
         geom:{
           area:{tag:"Géométrie · Aire",unit:"m²",
             schema:`Trapèze rectangle\n  Grande base B = ${B} m\n  Petite base b = ${b} m\n  Hauteur h = ${h} m`,
-            text:"Surface du champ, en m² ?",hints:["Aire d'un trapèze.","Aire = (B + b) ÷ 2 × hauteur."],
+            text:"Surface du champ, en m² ?",hints:["Aire = (grande base + petite base) ÷ 2 × hauteur.","Remplace B, b et h par les valeurs du schéma, puis calcule."],
             answer:area,sol:`(${B} + ${b}) ÷ 2 × ${h} = ${(B+b)/2} × ${h} = ${area} m²`},
           perim:{tag:"Géométrie · Périmètre",unit:"m",
             schema:`Trapèze rectangle\n  Grande base B = ${B} m\n  Petite base b = ${b} m\n  Hauteur (côté droit) = ${h} m\n  Côté oblique = ${ob} m`,
@@ -386,7 +386,8 @@ const SHAPE_DEFS={
 
 // ═══════════ PROPORTIONNALITÉ / FONCTIONS (m², sans hectare, sans durée) ═══════════
 function buildProp(area){
-  const conso=pick([1,1.2,1.5]), fioul=r1(conso*area/1000);
+  const consoOpts=[]; for(let i=17;i<=28;i++) consoOpts.push(i/10);
+  const conso=pick(consoOpts), fioul=r1(conso*area/1000);
   const Lr=pick([4000,5000,6000]), densite=pick([10,12,14]), grains=densite*Lr;
   const rend=pick([400,500,600]), recolteKg=Math.round(rend*area/1000), recolteT=r1(recolteKg/1000);
   const cap=pick([8000,10000,12000]), nbRem=Math.ceil(recolteKg/cap);
@@ -404,7 +405,12 @@ function buildLevels(){
   const g=SHAPE_GEOM.geom, a=SHAPE_GEOM.area_m2, P=PROP;
   return [
    {name:"TRAVAIL N°1 · CLÔTURE", work:"fence", tool:"fence",
-    tasks:[ clone(g.perim,{intro:"Avant de cultiver, tu dois clôturer ton champ. Calcule la longueur de clôture nécessaire : le périmètre. Ensuite, va chercher la poseuse et fais le tour du champ."}) ]},
+    tasks:[
+      ...(SHAPE.hasPyth ? [clone(g.pyth,{intro:"Le champ a la forme d'un trapèze rectangle. Avant de le clôturer, calcule la longueur de son côté oblique (théorème de Pythagore)."})] : []),
+      clone(g.perim,{intro: SHAPE.hasPyth
+        ? "Tu connais maintenant toutes les longueurs du champ. Calcule le périmètre total : c'est la longueur de clôture nécessaire. Ensuite, va chercher la poseuse et fais le tour du champ."
+        : "Avant de cultiver, tu dois clôturer ton champ. Calcule la longueur de clôture nécessaire : le périmètre. Ensuite, va chercher la poseuse et fais le tour du champ."})
+    ]},
 
    {name:"TRAVAIL N°2 · LABOUR", work:"plow", tool:"plow",
     tasks:[
@@ -419,7 +425,6 @@ function buildLevels(){
 
    {name:"TRAVAIL N°3 · SEMIS", work:"seed", tool:"seeder",
     tasks:[
-      ...(SHAPE.hasPyth ? [clone(g.pyth,{intro:"Pour caler le passage du semoir, calcule la longueur du côté oblique du champ (Pythagore)."})] : []),
       {tag:"Proportionnalité · Semis",unit:"grains",
        schema:`Longueur totale des rangs = ${P.Lr} m\n  Densité = ${P.densite} grains/m`,
        text:"Nombre total de graines à charger ?",
@@ -473,7 +478,10 @@ const TRACT_R=1.0, WORK_R=PS*0.62, LOAD_R=3.2;
 
 const keys={};
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;if(['arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();
-  if(e.key==='Enter'&&!e.repeat&&document.getElementById('modal-q').classList.contains('active'))submitAnswer();});
+  if(e.key==='Enter'&&!e.repeat){
+    if(document.getElementById('modal-q').classList.contains('active')) submitAnswer();
+    else if(document.getElementById('modal-info').classList.contains('active')) document.getElementById('info-btn').click();
+  }});
 addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 
 // ═══════════ THREE ═══════════
@@ -686,7 +694,8 @@ function buildScene(){
     if(full){ mesh=makeParcel(lvl.work); mesh.position.set(cx,0,cz); px=cx; pz=cz; }
     else { mesh=makePolyParcel(clip, lvl.work); let sx=0,sz=0; clip.forEach(pt=>{sx+=pt.x;sz+=pt.z;}); px=sx/clip.length; pz=sz/clip.length; }
     mesh.receiveShadow=true; fieldGroup.add(mesh);
-    const p={mesh,done:false,x:px,z:pz,work:lvl.work,crop:null};
+    const p={mesh,done:false,x:px,z:pz,work:lvl.work,crop:null,
+      tileScale: full?1:Math.max(0.3,Math.min(1,Math.sqrt(area/(PS*PS))*1.1))};
     if(lvl.work==='harvest'){
       const tuft=makeWheatTuft(); tuft.position.set(px,0.1,pz); fieldGroup.add(tuft);
       const c2={group:tuft,phase:Math.random()*6.28,cutting:false,cutT:0};
@@ -1022,8 +1031,8 @@ function makeWheatTuft(){
 function setParcelDone(p){
   p.mesh.material.color.setHex(parcelColor(p.work,true));
   if(p.work==='harvest' && p.crop && !p.crop.cutting){ p.crop.cutting=true; grainBurst(p.x,p.z,7); }
-  else if(p.work==='plow'){ const f=makeFurrows(); f.position.set(p.x,0.08,p.z); fieldGroup.add(f); addPop(f); }
-  else if(p.work==='seed'){ const s=makeSprouts(); s.position.set(p.x,0.08,p.z); fieldGroup.add(s); addPop(s); }
+  else if(p.work==='plow'){ const f=makeFurrows(); f.position.set(p.x,0.08,p.z); fieldGroup.add(f); addPop(f,p.tileScale); }
+  else if(p.work==='seed'){ const s=makeSprouts(); s.position.set(p.x,0.08,p.z); fieldGroup.add(s); addPop(s,p.tileScale); }
 }
 // Sillons de labour (billons en relief)
 function makeFurrows(){
@@ -1045,10 +1054,10 @@ function makeSprouts(){
   }
   return g;
 }
-function addPop(mesh){ mesh.scale.set(0.01,0.01,0.01); pops.push({mesh,t:0}); }
+function addPop(mesh,target){ mesh.scale.set(0.01,0.01,0.01); pops.push({mesh,t:0,target:target===undefined?1:target}); }
 function updatePops(dt){
   for(let i=pops.length-1;i>=0;i--){
-    const p=pops[i]; p.t+=dt; const u=Math.min(1,p.t/0.25), e=1-Math.pow(1-u,2);
+    const p=pops[i]; p.t+=dt; const u=Math.min(1,p.t/0.25), e=(1-Math.pow(1-u,2))*p.target;
     p.mesh.scale.set(e,e,e); if(u>=1) pops.splice(i,1);
   }
 }
@@ -1519,11 +1528,26 @@ function startTask(){
     `Pilote le tracteur jusqu'à la <b>station d'outils</b> (à droite) et <b>recule</b> sur le bon outil pour l'atteler : la <b>${need}</b>.${fuelNote}`,
     null);
 }
+// Trouve l'arête du contour qui n'est PAS déjà cotée (= le côté oblique/hypoténuse)
+function findObliqueEdge(){
+  if(!SHAPE_GEOM || !SHAPE_GEOM.dims || !shapePoly.length) return null;
+  const labeled=new Set(SHAPE_GEOM.dims.map(d=>Math.min(d.a,d.b)+'-'+Math.max(d.a,d.b)));
+  for(let i=0;i<shapePoly.length;i++){
+    const j=(i+1)%shapePoly.length, key=Math.min(i,j)+'-'+Math.max(i,j);
+    if(!labeled.has(key)) return [shapePoly[i],shapePoly[j]];
+  }
+  return null;
+}
 function drawDiagonal(){
-  const fw=COLS*PS, fh=ROWS*PS, len=Math.hypot(fw,fh);
   if(diagonalMesh) scene.remove(diagonalMesh);
-  diagonalMesh=new THREE.Mesh(new THREE.BoxGeometry(len,0.05,0.22),new THREE.MeshStandardMaterial({color:0xe8d048,emissive:0x444400,roughness:.6}));
-  diagonalMesh.position.set(0,0.14,0); diagonalMesh.rotation.y=-Math.atan2(fh,fw); scene.add(diagonalMesh);
+  const mat=new THREE.MeshStandardMaterial({color:0xe8d048,emissive:0x444400,roughness:.6});
+  const edge=findObliqueEdge();
+  let dx,dz,mx,mz;
+  if(edge){ const [A,B]=edge; dx=B.x-A.x; dz=B.z-A.z; mx=(A.x+B.x)/2; mz=(A.z+B.z)/2; }
+  else { dx=COLS*PS; dz=ROWS*PS; mx=0; mz=0; }             // repli : diagonale du rectangle englobant
+  const len=Math.hypot(dx,dz);
+  diagonalMesh=new THREE.Mesh(new THREE.BoxGeometry(len,0.05,0.22),mat);
+  diagonalMesh.position.set(mx,0.14,mz); diagonalMesh.rotation.y=-Math.atan2(dz,dx); scene.add(diagonalMesh);
 }
 // ── Côtes (dimensions) sur le champ ──
 function makeDimLabel(text){
