@@ -469,12 +469,12 @@ function initThree(){
   renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   renderer.outputEncoding=THREE.sRGBEncoding;
   renderer.toneMapping=THREE.LinearToneMapping;    // pas de courbe filmique : couleurs éclatantes, non délavées
-  renderer.toneMappingExposure=1.0;
+  renderer.toneMappingExposure=0.65;
   // ciel en dégradé (dôme)
   scene.add(makeSkyDome());
   // lumières : clé chaude + remplissage froid + ambiance ciel/sol
   hemiLight=new THREE.HemisphereLight(0x9ec8f0,0x556a30,0.12); scene.add(hemiLight);
-  const sun=new THREE.DirectionalLight(0xffdca8,1.2); sunLight=sun; sun.position.set(-26,42,22); sun.castShadow=true;
+  const sun=new THREE.DirectionalLight(0xffdca8,0.85); sunLight=sun; sun.position.set(-26,42,22); sun.castShadow=true;
   sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.left=-64;sun.shadow.camera.right=64;
   sun.shadow.camera.top=64;sun.shadow.camera.bottom=-64;sun.shadow.camera.far=140;sun.shadow.bias=-0.0002; sun.shadow.radius=2;
   scene.add(sun);
@@ -679,7 +679,7 @@ function buildScene(){
   // ── OUTILS (colonne à droite) + CITERNE (bas, au centre) ──
   const gx = gate ? gate.x : 0;
   toolStations=[];
-  buildToolYard(decorGroup, hx+5.5, 0, lvl.tool);
+  buildToolYard(decorGroup, hx+9, 0, lvl.tool);
   cistern={x:gx, z:minZ-6.5};
   decorGroup.add(makeCistern(cistern.x,cistern.z)); decorGroup.add(makeGroundShadow(cistern.x,cistern.z,1.9));
 
@@ -943,12 +943,12 @@ function buildLandscape(group,hx,hz,minZ){
   windmills=[]; ducks=[]; clouds=[]; smokeSources=[]; trees=[]; hens=[];
   ambSmoke.forEach(m=>scene.remove(m)); ambSmoke=[]; smokeTimer=0;
   birds.forEach(b=>scene.remove(b)); birds=[]; birdTimer=6;
-  const fx=0, fz=hz+3, frot=Math.PI;   // reculée jusqu'à la limite de la terre (bord du chemin), face à la citerne
+  const fx=0, fz=hz+7, frot=Math.PI;   // mur de façade aligné avec le début de l'herbe (bord du chemin de terre)
   group.add(makeFarmhouse(fx,fz,frot)); group.add(makeGroundShadow(fx,fz,4.2));
   const lx=1.5,lz=0.7;
   smokeSources.push({x:fx+lx*Math.cos(frot)+lz*Math.sin(frot), y:5.4, z:fz-lx*Math.sin(frot)+lz*Math.cos(frot)});
-  group.add(makeBarn(hx+12,-2,-0.4)); group.add(makeGroundShadow(hx+12,-2,4.6));
-  group.add(makeSilo(hx+9,6)); group.add(makeSilo(hx+11.5,6.5)); group.add(makeGroundShadow(hx+10.2,6.2,2.4));
+  group.add(makeBarn(hx+14,-2,-Math.PI/2)); group.add(makeGroundShadow(hx+14,-2,4.6));
+  group.add(makeSilo(hx+11,10)); group.add(makeSilo(hx+13.5,10.5)); group.add(makeGroundShadow(hx+12.2,10.2,2.4));
   group.add(makeWindmill(-hx-14,10)); group.add(makeGroundShadow(-hx-14,10,1.6));
   group.add(makePond(hx+16,-14));
   group.add(makeHayBale(hx+4,minZ-8)); group.add(makeHayBale(hx+5.6,minZ-8.4)); group.add(makeHayBale(hx+4.8,minZ-9.6));
@@ -1178,7 +1178,7 @@ function buildToolYard(group, x, zc, needType){
     pad.position.set(x,0.07,z); pad.receiveShadow=true; group.add(pad);
     const tm=makeTool(type,1.7,true); tm.position.set(x,0.2,z); group.add(tm);
     const label=makeTextSprite(TOOL_LABEL[type]); label.position.set(x,2.9,z); label.visible=false; group.add(label);
-    toolStations.push({type,x,z,label});
+    toolStations.push({type,x,z,label,groundMesh:tm});
   }
 }
 // N'affiche le nom d'un outil (ou de la citerne) que lorsque le tracteur s'en approche
@@ -1371,6 +1371,7 @@ function tryLoadTool(reversing){
   document.getElementById('hud-tool').textContent='Outil : '+TOOL_LABEL[near.type];
   if(near.type===need){
     tractor.toolLocked=true;                            // verrouillé : plus de changement par erreur
+    if(near.groundMesh) near.groundMesh.visible=false;   // l'outil disparaît du sol une fois attelé
     flashTip(`🔧 Attelage de la <b>${TOOL_LABEL[near.type]}</b>…`);
     attachToolAnimated(near.type, ()=>{
       if(tractor.refueled){
