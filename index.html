@@ -363,14 +363,18 @@ const SHAPE_DEFS={
 function buildProp(area){
   const consoOpts=[]; for(let i=17;i<=28;i++) consoOpts.push(i/10);
   const conso=pick(consoOpts), fioul=r1(conso*area/1000);
+  const consoS=pick(consoOpts.filter(v=>v!==conso)), fioulS=r1(consoS*area/1000);   // fioul spécifique au semoir
   const Lr=pick([4000,5000,6000]), densite=pick([10,12,14]), grains=densite*Lr;
+  const pct=pick([5,8,10,12,15,20]), extraGrains=grains*pct/100, totalGrains=grains+extraGrains;
   const rend=pick([400,500,600]), recolteKg=Math.round(rend*area/1000), recolteT=r1(recolteKg/1000);
+  const capT=pick([8,10,12]), nbBennes=Math.ceil(recolteT/capT);
   const cap=pick([8000,10000,12000]), nbRem=Math.ceil(recolteKg/cap);
   const cA=pick([0.05,0.06,0.08]), cB=pick([150,200,250]), cout=r1(cA*area+cB);
+  const x0=pick([5000,6000,8000,10000,12000]), budget=r1(cA*x0+cB);   // problème inverse : résoudre C(x)=budget
   const prixT=pick([180,200,220]), recette=r1(prixT*recolteT), benefice=r1(recette-cout);
   const hoursOpts=[2,3,4].filter(hh=>area%hh===0);
   const hoursH=pick(hoursOpts.length?hoursOpts:[2]), debitH=Math.round(area/hoursH);   // durée exacte en heures
-  return {conso,fioul,Lr,densite,grains,rend,recolteKg,recolteT,cap,nbRem,cA,cB,cout,prixT,recette,benefice,debitH,hoursH};
+  return {conso,fioul,consoS,fioulS,Lr,densite,grains,pct,extraGrains,totalGrains,rend,recolteKg,recolteT,capT,nbBennes,cap,nbRem,cA,cB,cout,x0,budget,prixT,recette,benefice,debitH,hoursH};
 }
 
 // ═══════════ NIVEAUX ═══════════
@@ -403,9 +407,15 @@ function buildLevels(){
       {tag:"Proportionnalité · Semis",unit:"grains",
        schema:`Longueur totale des rangs = ${P.Lr} m\n  Densité = ${P.densite} grains/m`,
        text:"Nombre total de graines à charger ?",
-       intro:"Remplis la trémie. Calcule le nombre total de graines. Ensuite, va chercher le semoir et sème toute la parcelle.",
+       intro:"Remplis la trémie. Calcule le nombre total de graines à charger dans le semoir.",
        hints:["La densité est en grains par mètre.","grains = densité × longueur des rangs."],
-       answer:P.grains,sol:`${P.densite} × ${P.Lr} = ${P.grains} grains`}
+       answer:P.grains,sol:`${P.densite} × ${P.Lr} = ${P.grains} grains`},
+      {tag:"Pourcentage · Semis",unit:"grains",
+       schema:`Graines nécessaires (sans marge) = ${P.grains} grains\n  Marge de sécurité = ${P.pct} %`,
+       text:"Pour éviter les pertes au semis, combien de graines dois-tu charger au total en prévoyant cette marge ?",
+       intro:"Pour ne pas tomber à court en cours de semis, prévois une marge de sécurité. Ensuite, va chercher le semoir et sème toute la parcelle.",
+       hints:[`Calcule d'abord la marge : ${P.pct} % de ${P.grains} grains.`,"Ajoute cette marge au nombre de graines initial pour obtenir le total à charger."],
+       answer:P.totalGrains,sol:`${P.grains} × ${P.pct}/100 = ${fmt(P.extraGrains)} ; ${P.grains} + ${fmt(P.extraGrains)} = ${fmt(P.totalGrains)} grains`}
     ]},
 
    {name:"TRAVAIL N°4 · MOISSON", work:"harvest", tool:"harvester",
@@ -417,12 +427,12 @@ function buildLevels(){
        intro:"Estime la récolte totale à partir du rendement.",
        hints:["Combien de fois 1 000 m² dans la surface ?","récolte = rendement × (surface ÷ 1 000)."],
        answer:P.recolteKg,sol:`${P.rend} × (${a} ÷ 1000) = ${P.recolteKg} kg`},
-      ...(SHAPE.hasCost ? [{tag:"Fonctions · Coût",unit:"€",
-       schema:`Location moissonneuse : C(x) = ${P.cA}x + ${P.cB}\n  x = ta surface calculée (en m²)`,
-       text:"Coût total de location C(x), pour x = ta surface calculée ?",
-       intro:"Calcule le coût de location de la machine avec la fonction C.",
-       hints:["Remplace x par la surface dans C.",`C(x) = ${P.cA} × x + ${P.cB}.`],
-       answer:P.cout,sol:`${P.cA} × ${a} + ${P.cB} = ${fmt(P.cout)} €`}] : []),
+      {tag:"Proportionnalité · Logistique",unit:"bennes",integer:true,
+       schema:`Récolte = ${P.recolteT} t\n  Capacité d'une benne = ${P.capT} t`,
+       text:"Combien de bennes faut-il prévoir pour transporter toute la récolte ?",
+       intro:"Organise le transport du grain : combien de bennes complètes faut-il prévoir ?",
+       hints:["Divise la récolte totale (en tonnes) par la capacité d'une benne.","Arrondis au nombre entier supérieur : une benne partiellement pleine compte quand même."],
+       answer:P.nbBennes,sol:`${P.recolteT} ÷ ${P.capT} = ${fmt(r1(P.recolteT/P.capT))} → ${P.nbBennes} bennes`},
       {tag:"Proportionnalité · Durée",unit:"h",integer:true,
        schema:`Débit de moisson = ${P.debitH} m²/h\n  Surface = ${a} m²`,
        text:"Durée de la moisson, en heures ?",
