@@ -420,11 +420,10 @@ function buildLevels(){
 
    {name:"TRAVAIL N°4 · MOISSON", work:"harvest", tool:"harvester",
     tasks:[
-      clone(g.area,{intro:"La moisson commence. Relève d'abord la surface à récolter."}),
       {tag:"Proportionnalité · Rendement",unit:"kg",
        schema:`Rendement = ${P.rend} kg pour 1 000 m²\n  Surface = ${a} m²`,
        text:"Récolte totale attendue, en kg ?",
-       intro:"Estime la récolte totale à partir du rendement.",
+       intro:"La moisson commence. Estime la récolte totale à partir du rendement.",
        hints:["Combien de fois 1 000 m² dans la surface ?","récolte = rendement × (surface ÷ 1 000)."],
        answer:P.recolteKg,sol:`${P.rend} × (${a} ÷ 1000) = ${P.recolteKg} kg`},
       {tag:"Proportionnalité · Logistique",unit:"bennes",integer:true,
@@ -466,6 +465,11 @@ addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;if(['arr
   if(e.key==='Enter'&&!e.repeat){
     if(document.getElementById('modal-q').classList.contains('active')) submitAnswer();
     else if(document.getElementById('modal-info').classList.contains('active')) document.getElementById('info-btn').click();
+    else if(document.getElementById('modal-end').classList.contains('active')) document.getElementById('end-btn').click();
+    else {
+      const s=document.getElementById('screen-title');
+      if(s && s.style.display!=='none'){ const b=s.querySelector('button'); if(b) b.click(); }
+    }
   }});
 addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 
