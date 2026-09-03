@@ -35,7 +35,7 @@ h1.title span{color:#ffd24d;}
 .finish-box .t-label{color:#cfe6b4;}
 .finish-box h1.title{color:#fbfdf4;}
 .finish-box .t-desc{color:#e8f2da;}
-.shape-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;max-width:520px;width:92vw;}
+.shape-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:760px;width:92vw;}
 .shape-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;gap:10px;transition:border-color .15s,background .15s,transform .1s;box-shadow:0 6px 18px rgba(0,0,0,.18);}
 .shape-card:hover{border-color:var(--green);background:#fff;transform:translateY(-2px);}
@@ -215,11 +215,16 @@ function pointSegDist(px,pz,ax,az,bx,bz){
 }
 function shapeUnlocked(id){
   if(id==='rect') return true;
-  try{ if(localStorage.getItem('agromath_rectDone')==='1') return true; }catch(e){}
-  return sessionRectDone;
+  if(id==='trap') return shapeDone('rect');
+  if(id==='tri') return shapeDone('trap');
+  return false;
 }
-let sessionRectDone=false;
-function markRectDone(){ sessionRectDone=true; try{localStorage.setItem('agromath_rectDone','1');}catch(e){} }
+function shapeDone(id){
+  try{ if(localStorage.getItem('agromath_'+id+'Done')==='1') return true; }catch(e){}
+  return !!sessionDone[id];
+}
+let sessionDone={};
+function markShapeDone(id){ sessionDone[id]=true; try{localStorage.setItem('agromath_'+id+'Done','1');}catch(e){} }
 
 // ═══════════ AUDIO ═══════════
 let audioCtx=null, masterGain=null, engine=null, muted=false, lastTool=0;
@@ -311,6 +316,8 @@ const SHAPE_DEFS={
     label:"Champ rectangulaire",
     hasPyth:false,
     hasCost:false,
+    hasTrig:false,
+    hasVolume:false,
     poly:(hx,hz)=>[{x:-hx,z:-hz},{x:hx,z:-hz},{x:hx,z:hz},{x:-hx,z:hz}],
     build(){
       let L=pick([120,150,180,200,160]), l=pick([80,100,120,90,110]); if(l>L){const t=L;L=l;l=t;}
@@ -324,7 +331,7 @@ const SHAPE_DEFS={
           perim:{tag:"Géométrie · Périmètre",unit:"m",schema:`Rectangle\n  Longueur L = ${L} m\n  Largeur l = ${l} m`,
             text:"Longueur de clôture pour entourer le champ ?",hints:["Il faut le périmètre.","2 longueurs + 2 largeurs."],
             answer:perim,sol:`2 × (${L} + ${l}) = ${perim} m`},
-          pyth:{tag:"Géométrie · Pythagore",unit:"m",schema:`Triangle rectangle formé par L et l\n  L = ${L} m\n  l = ${l} m`,
+          pyth:{tag:"Géométrie · Pythagore",unit:"m",showTriangle:true,schema:`Triangle rectangle formé par L et l\n  L = ${L} m\n  l = ${l} m`,
             text:"Longueur de la diagonale du champ ?",hints:["La diagonale = hypoténuse du triangle (L, l).","Pythagore : d = √(L² + l²)."],
             answer:diag,sol:`√(${L}² + ${l}²) ≈ ${diag} m`}
         }};
@@ -334,6 +341,8 @@ const SHAPE_DEFS={
     label:"Champ en trapèze rectangle",
     hasPyth:true,
     hasCost:true,
+    hasTrig:false,
+    hasVolume:false,
     poly:(hx,hz)=>[{x:-hx,z:-hz},{x:hx,z:-hz},{x:-hx+2*hx*0.55,z:hz},{x:-hx,z:hz}],
     build(){
       const B=pick([160,180,200]), b=pick([80,100,120]), h=pick([90,110,130]);
@@ -350,10 +359,59 @@ const SHAPE_DEFS={
             schema:`Trapèze rectangle\n  Grande base B = ${B} m\n  Petite base b = ${b} m\n  Hauteur (côté droit) = ${h} m\n  Côté oblique = ${ob} m`,
             text:"Longueur de clôture (périmètre) ?",hints:["Additionne les 4 côtés.","Périmètre = B + b + hauteur + côté oblique."],
             answer:perim,sol:`${B} + ${b} + ${h} + ${ob} = ${perim} m`},
-          pyth:{tag:"Géométrie · Pythagore",unit:"m",
+          pyth:{tag:"Géométrie · Pythagore",unit:"m",showTriangle:true,
             schema:`Côté oblique du trapèze\n  Hauteur h = ${h} m\n  Écart des bases : B − b = ${B-b} m`,
             text:"Longueur du côté oblique ?",hints:["Triangle rectangle formé par la hauteur et l'écart des bases.","Pythagore : oblique = √(h² + (B − b)²)."],
             answer:ob,sol:`√(${h}² + ${B-b}²) ≈ ${ob} m`}
+        }};
+    }
+  },
+  tri:{
+    label:"Champ en L (coin coupé)",
+    hasPyth:true,
+    hasCost:false,
+    hasTrig:false,
+    hasVolume:true,
+    pythVerts:[5,1,2],   // [angle droit, extrémité 1 de l'hypoténuse, extrémité 2] — sommets réels, pas de projection
+    poly:(hx,hz)=>{ const hxTop=0, sz=-1.2;  // sz aligné sur une frontière de la grille (ROWS=7, PS=2.4 fixes)
+      return [{x:-hx,z:hz},{x:hxTop,z:hz},{x:hx,z:sz},{x:hx,z:-hz},{x:hxTop,z:-hz},{x:hxTop,z:sz},{x:-hx,z:sz}]; },
+    subPolys:(hx,hz)=>{ const hxTop=0, sz=-1.2;
+      return [
+        [{x:-hx,z:hz},{x:hxTop,z:hz},{x:hx,z:sz},{x:-hx,z:sz}],          // pièce lointaine (trapèze avec coin coupé)
+        [{x:hxTop,z:sz},{x:hx,z:sz},{x:hx,z:-hz},{x:hxTop,z:-hz}]        // pièce proche (rectangle, l'entrée)
+      ]; },
+    build(){
+      const L=pick([100,120,140,160]), Hlow=pick([40,50,60,70]);
+      const scale=pick([10,10,15]);
+      const [lh,lm,lc]=pick([[3,4,5],[6,8,10],[5,12,13],[8,15,17],[9,12,15]]);
+      const H=lh*scale, missing=lm*scale, hyp=lc*scale;
+      const area=r1(H*(L+missing/2) + missing*Hlow);
+      const perim=r1(2*L + hyp + 2*Hlow + missing + H);
+      return {area_m2:area, badge:`Champ en L — L=${L} m, H=${H} m, hyp=${hyp} m`,
+        dims:[
+          {a:0,b:1,off:{x:0,z:1},text:`L = ${L} m`},
+          {a:1,b:2,off:{x:1,z:0.4},text:`Hypoténuse = ${hyp} m`},
+          {a:2,b:3,off:{x:1,z:0},text:`H2 = ${Hlow} m`},
+          {a:4,b:5,off:{x:-1,z:0.3},text:`H2 = ${Hlow} m`},
+          {a:5,b:6,off:{x:0,z:-1},text:`L = ${L} m`},
+          {a:6,b:0,off:{x:-1,z:0},text:`H = ${H} m`}
+        ],
+        geom:{
+          area:{tag:"Géométrie · Aire",unit:"m²",
+            schema:`Champ en L\n  L = ${L} m\n  H = ${H} m\n  Petit côté (calculé) = ${missing} m\n  H2 = ${Hlow} m`,
+            text:"Surface totale du champ, en m² ?",
+            hints:["Découpe le champ en 2 morceaux : le grand trapèze et le petit rectangle.","Aire trapèze = (L + (L+petit côté)) ÷ 2 × H ; Aire rectangle = petit côté × H2 ; additionne les deux."],
+            answer:area,sol:`Trapèze : (${L} + ${L+missing}) ÷ 2 × ${H} = ${r1(H*(L+missing/2))} m² ; Rectangle : ${missing} × ${Hlow} = ${missing*Hlow} m² ; total = ${area} m²`},
+          perim:{tag:"Géométrie · Périmètre",unit:"m",
+            schema:`Champ en L\n  L = ${L} m (×2)\n  H = ${H} m\n  H2 = ${Hlow} m (×2)\n  Hypoténuse = ${hyp} m\n  Petit côté (calculé) = ${missing} m`,
+            text:"Longueur de clôture (périmètre) ?",
+            hints:["Additionne les 7 côtés du contour, un par un.","Périmètre = 2×L + H + 2×H2 + hypoténuse + petit côté."],
+            answer:perim,sol:`2×${L} + ${H} + 2×${Hlow} + ${hyp} + ${missing} = ${perim} m`},
+          pyth:{tag:"Géométrie · Pythagore",unit:"m",showTriangle:true,
+            schema:`Triangle rectangle formé par la hauteur et l'hypoténuse\n  H = ${H} m\n  Hypoténuse = ${hyp} m`,
+            text:"Quelle est la longueur du petit côté manquant du champ ?",
+            hints:["C'est un triangle rectangle : utilise le théorème de Pythagore.",`petit côté = √(hypoténuse² − H²) = √(${hyp}² − ${H}²).`],
+            answer:missing,sol:`√(${hyp}² − ${H}²) = √${hyp*hyp-H*H} = ${missing} m`}
         }};
     }
   }
@@ -368,13 +426,14 @@ function buildProp(area){
   const pct=pick([5,8,10,12,15,20]), extraGrains=grains*pct/100, totalGrains=grains+extraGrains;
   const rend=pick([400,500,600]), recolteKg=Math.round(rend*area/1000), recolteT=r1(recolteKg/1000);
   const capT=pick([8,10,12]), nbBennes=Math.ceil(recolteT/capT);
+  const siloR=pick([2,2.5,3]), siloH=pick([5,6,7,8]), siloVol=r1(Math.PI*siloR*siloR*siloH);
   const cap=pick([8000,10000,12000]), nbRem=Math.ceil(recolteKg/cap);
   const cA=pick([0.05,0.06,0.08]), cB=pick([150,200,250]), cout=r1(cA*area+cB);
   const x0=pick([5000,6000,8000,10000,12000]), budget=r1(cA*x0+cB);   // problème inverse : résoudre C(x)=budget
   const prixT=pick([180,200,220]), recette=r1(prixT*recolteT), benefice=r1(recette-cout);
   const hoursOpts=[2,3,4].filter(hh=>area%hh===0);
   const hoursH=pick(hoursOpts.length?hoursOpts:[2]), debitH=Math.round(area/hoursH);   // durée exacte en heures
-  return {conso,fioul,consoS,fioulS,Lr,densite,grains,pct,extraGrains,totalGrains,rend,recolteKg,recolteT,capT,nbBennes,cap,nbRem,cA,cB,cout,x0,budget,prixT,recette,benefice,debitH,hoursH};
+  return {conso,fioul,consoS,fioulS,Lr,densite,grains,pct,extraGrains,totalGrains,rend,recolteKg,recolteT,capT,nbBennes,siloR,siloH,siloVol,cap,nbRem,cA,cB,cout,x0,budget,prixT,recette,benefice,debitH,hoursH};
 }
 
 // ═══════════ NIVEAUX ═══════════
@@ -385,7 +444,9 @@ function buildLevels(){
   return [
    {name:"TRAVAIL N°1 · CLÔTURE", work:"fence", tool:"fence",
     tasks:[
-      ...(SHAPE.hasPyth ? [clone(g.pyth,{intro:"Le champ a la forme d'un trapèze rectangle. Avant de le clôturer, calcule la longueur de son côté oblique (théorème de Pythagore)."})] : []),
+      ...(SHAPE.hasPyth ? [clone(g.pyth,{intro: currentShapeId==='tri'
+        ? "Le champ a la forme d'un rectangle avec un coin coupé et une extension. Avant de le clôturer, calcule la longueur du petit côté manquant (théorème de Pythagore)."
+        : "Le champ a la forme d'un trapèze rectangle. Avant de le clôturer, calcule la longueur de son côté oblique (théorème de Pythagore)."})] : []),
       clone(g.perim,{intro: SHAPE.hasPyth
         ? "Tu connais maintenant toutes les longueurs du champ. Calcule le périmètre total : c'est la longueur de clôture nécessaire. Ensuite, va chercher la poseuse et fais le tour du champ."
         : "Avant de cultiver, tu dois clôturer ton champ. Calcule la longueur de clôture nécessaire : le périmètre. Ensuite, va chercher la poseuse et fais le tour du champ."})
@@ -426,6 +487,12 @@ function buildLevels(){
        intro:"La moisson commence. Estime la récolte totale à partir du rendement.",
        hints:["Combien de fois 1 000 m² dans la surface ?","récolte = rendement × (surface ÷ 1 000)."],
        answer:P.recolteKg,sol:`${P.rend} × (${a} ÷ 1000) = ${P.recolteKg} kg`},
+      ...(SHAPE.hasVolume ? [{tag:"Volumes · Silo",unit:"m³",
+       schema:`Silo cylindrique\n  Rayon r = ${P.siloR} m\n  Hauteur h = ${P.siloH} m`,
+       text:"Quel est le volume disponible dans le silo, en m³ ? (avant de charger les bennes, vérifie qu'il peut contenir la récolte)",
+       intro:"Le silo doit pouvoir contenir toute la récolte. Calcule sa capacité en volume.",
+       hints:["Volume d'un cylindre = π × rayon² × hauteur.",`V = π × ${P.siloR}² × ${P.siloH}.`],
+       answer:P.siloVol,sol:`π × ${P.siloR}² × ${P.siloH} ≈ ${P.siloVol} m³`}] : []),
       {tag:"Proportionnalité · Logistique",unit:"bennes",integer:true,
        schema:`Récolte = ${P.recolteT} t\n  Capacité d'une benne = ${P.capT} t`,
        text:"Combien de bennes faut-il prévoir pour transporter toute la récolte ?",
@@ -651,7 +718,7 @@ function buildScene(){
   const grassTex=getGrassTexture();
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({map:grassTex,roughness:1}));
   ground.rotation.x=-Math.PI/2; ground.position.y=-0.05; ground.receiveShadow=true; decorGroup.add(ground);
-  const dirt=new THREE.Mesh(new THREE.PlaneGeometry(fw+10,fh+10),new THREE.MeshStandardMaterial({color:0x6a5733,roughness:1}));
+  const dirt=new THREE.Mesh(new THREE.PlaneGeometry(fw+14,fh+14),new THREE.MeshStandardMaterial({color:0x6a5733,roughness:1}));
   dirt.rotation.x=-Math.PI/2; dirt.position.y=-0.02; dirt.receiveShadow=true; decorGroup.add(dirt);
   // chemin d'accès vers le portail
   const road=new THREE.Mesh(new THREE.PlaneGeometry(6,26),new THREE.MeshStandardMaterial({color:0x7a6238,roughness:1}));
@@ -661,12 +728,17 @@ function buildScene(){
 
   // ── PARCELLES (cellules carrées à l'intérieur, découpées au contour sur les bords) ──
   fieldGroup=new THREE.Group();
-  const ws=polySignedArea(shapePoly)>=0?1:-1;
+  const subPolys = SHAPE.subPolys ? SHAPE.subPolys(hx,hz) : [shapePoly];
+  const subWs = subPolys.map(sp=>polySignedArea(sp)>=0?1:-1);
   for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
     const cx=x0+c*PS, cz=z0+r*PS;
-    const clip=clipCell(cx,cz,shapePoly,ws);
+    let clip=null, bestArea=0;
+    for(let s=0;s<subPolys.length;s++){
+      const c=clipCell(cx,cz,subPolys[s],subWs[s]); if(!c) continue;
+      const a=polyArea(c); if(a>bestArea){ bestArea=a; clip=c; }
+    }
     if(!clip) continue;
-    const area=polyArea(clip);
+    const area=bestArea;
     if(area < PS*PS*0.06) continue;                       // éclat trop petit → ignoré
     const full = clip.length===4 && area > PS*PS*0.9995;
     let mesh, px, pz;
@@ -698,7 +770,7 @@ function buildScene(){
   decorGroup.add(makeCistern(cistern.x,cistern.z)); decorGroup.add(makeGroundShadow(cistern.x,cistern.z,1.9));
 
   // ── HANGAR + TRACTEUR (côté opposé aux outils, aligné en face d'eux, à bonne distance du champ) ──
-  const garageX=-hx-8, garageZ=0;
+  const garageX=-hx-10, garageZ=0;
   decorGroup.add(makeHangar(garageX,garageZ,+1)); decorGroup.add(makeGroundShadow(garageX,garageZ,3.4));
   tractor={group:makeTractor(),x:garageX+4,z:garageZ,heading:Math.PI/2,tool:null,toolLocked:false,
            refueled:(currentLevel>=1?false:true),wheelSpin:0,smoke:[],toolMesh:null};
@@ -957,7 +1029,7 @@ function buildLandscape(group,hx,hz,minZ){
   windmills=[]; ducks=[]; clouds=[]; smokeSources=[]; trees=[]; hens=[];
   ambSmoke.forEach(m=>scene.remove(m)); ambSmoke=[]; smokeTimer=0;
   birds.forEach(b=>scene.remove(b)); birds=[]; birdTimer=6;
-  const fx=0, fz=hz+7, frot=Math.PI;   // mur de façade aligné avec le début de l'herbe (bord du chemin de terre)
+  const fx=0, fz=hz+9, frot=Math.PI;   // mur de façade aligné avec le début de l'herbe (bord du chemin de terre, agrandi)
   group.add(makeFarmhouse(fx,fz,frot)); group.add(makeGroundShadow(fx,fz,4.2));
   const lx=1.5,lz=0.7;
   smokeSources.push({x:fx+lx*Math.cos(frot)+lz*Math.sin(frot), y:5.4, z:fz-lx*Math.sin(frot)+lz*Math.cos(frot)});
@@ -1136,7 +1208,7 @@ function buildWallsAndFence(poly, group){
     for(let k=0;k<=n;k++){const t=k/n;const p=new THREE.Mesh(new THREE.BoxGeometry(0.16,1,0.16),postMat);
       p.position.set(ax+dx*t,0.5,az+dz*t); p.castShadow=true; group.add(p);}
     const rail=new THREE.Mesh(new THREE.BoxGeometry(len,0.1,0.06),railMat);
-    rail.position.set((ax+bx)/2,0.66,(az+bz)/2); rail.rotation.y=Math.atan2(dz,dx); rail.castShadow=true; group.add(rail);
+    rail.position.set((ax+bx)/2,0.66,(az+bz)/2); rail.rotation.y=-Math.atan2(dz,dx); rail.castShadow=true; group.add(rail);
   }
   for(let i=0;i<poly.length;i++){
     const A=poly[i], B=poly[(i+1)%poly.length];
@@ -1485,9 +1557,11 @@ function showShapeScreen(){
   const grid=document.getElementById('shape-grid'); grid.innerHTML='';
   const cards=[
     {id:'rect',svg:'<polygon points="12,12 88,12 88,58 12,58" fill="#3d6830" stroke="#7ab840" stroke-width="2"/>',
-     name:'Niveau 1',shape:'Champ rectangulaire',sub:'Aire · Périmètre · Proportionnalité · Durée'},
+     name:'Niveau 1',shape:'Champ rectangulaire',sub:'Aire · Périmètre · Proportionnalité · Pourcentage',prereq:null},
     {id:'trap',svg:'<polygon points="12,58 88,58 58,12 12,12" fill="#3d6830" stroke="#7ab840" stroke-width="2"/>',
-     name:'Niveau 2',shape:'Champ trapèze rectangle',sub:'Aire · Périmètre · Pythagore · Proportionnalité · Fonctions · Durée'}
+     name:'Niveau 2',shape:'Champ trapèze rectangle',sub:'Aire · Périmètre · Pythagore · Proportionnalité · Pourcentage',prereq:'Niveau 1'},
+    {id:'tri',svg:'<polygon points="12,12 50,12 88,35 88,58 50,58 50,35 12,35" fill="#3d6830" stroke="#7ab840" stroke-width="2"/>',
+     name:'Niveau 3',shape:'Champ en L (coin coupé)',sub:'Aire · Périmètre · Pythagore · Volumes · Proportionnalité',prereq:'Niveau 2'}
   ];
   cards.forEach(c=>{
     const un=shapeUnlocked(c.id);
@@ -1495,7 +1569,7 @@ function showShapeScreen(){
     el.innerHTML=`<svg viewBox="0 0 100 70">${c.svg}</svg>`+
       `<span class="sc-name">${c.name}</span>`+
       `<span class="sc-shape">${c.shape}</span>`+
-      `<span class="sc-sub">${un?'Thèmes : '+c.sub:'🔒 Termine d\'abord le Niveau 1'}</span>`;
+      `<span class="sc-sub">${un?'Thèmes : '+c.sub:'🔒 Termine d\'abord le '+c.prereq}</span>`;
     if(un) el.onclick=()=>chooseShape(c.id);
     grid.appendChild(el);
   });
@@ -1537,7 +1611,7 @@ function showTask(){
   const hb=document.getElementById('hint-btn'); hb.textContent="💡 Besoin d'un indice ?"; hb.disabled=false;
   document.getElementById('modal-q').classList.add('active');
   showDims();
-  if(task.tag && task.tag.indexOf('Pythagore')>=0) showPythTriangle(); else hidePythTriangle();
+  if(task.showTriangle) showPythTriangle(); else hidePythTriangle();
   setTimeout(()=>document.getElementById('q-input').focus(),100);
 }
 function revealHint(){
@@ -1559,7 +1633,7 @@ function submitAnswer(){
 }
 function afterAnswer(){
   const task=levelTasks[taskIndex];
-  if(task.tag && task.tag.indexOf('Pythagore')>=0) drawDiagonal();
+  if(task.showTriangle) drawDiagonal();
   taskIndex++;
   if(taskIndex<levelTasks.length) showTask();
   else { document.getElementById('modal-q').classList.remove('active'); startTask(); }
@@ -1587,25 +1661,35 @@ function findObliqueEdge(){
 function showPythTriangle(){
   hidePythTriangle();
   if(!SHAPE.hasPyth || !shapePoly.length) return;
-  const edge=findObliqueEdge(); if(!edge) return;
-  const [Bp,Cp]=edge;
-  let idxB=-1; for(let i=0;i<shapePoly.length;i++) if(shapePoly[i]===Bp) idxB=i;
-  const Ap=shapePoly[(idxB-1+shapePoly.length)%shapePoly.length];
-  const dirx=Bp.x-Ap.x, dirz=Bp.z-Ap.z, dlen=Math.hypot(dirx,dirz);
-  if(dlen<0.01) return;
-  const ux=dirx/dlen, uz=dirz/dlen;
-  const t=(Cp.x-Ap.x)*ux+(Cp.z-Ap.z)*uz;
-  const P={x:Ap.x+t*ux, z:Ap.z+t*uz};
   const mat=new THREE.MeshStandardMaterial({color:0xe8402a,emissive:0x5a1208,emissiveIntensity:.55,roughness:.5});
+  let Ap,Bp,Cp,ux,uz,pux,puz;
+  if(SHAPE.pythVerts){
+    // Sommets réels explicites (angle droit, puis les deux extrémités de l'hypoténuse) : pas de point projeté.
+    const [iAp,iBp,iCp]=SHAPE.pythVerts;
+    Ap=shapePoly[iAp]; Bp=shapePoly[iBp]; Cp=shapePoly[iCp];
+    const dlenA=Math.hypot(Bp.x-Ap.x,Bp.z-Ap.z)||1; ux=(Bp.x-Ap.x)/dlenA; uz=(Bp.z-Ap.z)/dlenA;
+    const dlenB=Math.hypot(Cp.x-Ap.x,Cp.z-Ap.z)||1; pux=(Cp.x-Ap.x)/dlenB; puz=(Cp.z-Ap.z)/dlenB;
+  } else {
+    const edge=findObliqueEdge(); if(!edge) return;
+    [Bp,Cp]=edge;
+    let idxB=-1; for(let i=0;i<shapePoly.length;i++) if(shapePoly[i]===Bp) idxB=i;
+    const A0=shapePoly[(idxB-1+shapePoly.length)%shapePoly.length];
+    const dirx=Bp.x-A0.x, dirz=Bp.z-A0.z, dlen=Math.hypot(dirx,dirz);
+    if(dlen<0.01) return;
+    ux=dirx/dlen; uz=dirz/dlen;
+    const t=(Cp.x-A0.x)*ux+(Cp.z-A0.z)*uz;
+    Ap={x:A0.x+t*ux, z:A0.z+t*uz};                      // point projeté (angle droit)
+    const perp={x:Cp.x-Ap.x, z:Cp.z-Ap.z}, plen=Math.hypot(perp.x,perp.z)||1;
+    pux=perp.x/plen; puz=perp.z/plen;
+  }
   pythTri=new THREE.Group();
-  addBar(Bp.x,Bp.z,P.x,P.z,mat,pythTri,0.16,0.13);     // 1er côté (le long de la base)
-  addBar(P.x,P.z,Cp.x,Cp.z,mat,pythTri,0.16,0.13);     // 2e côté (la hauteur)
-  addBar(Bp.x,Bp.z,Cp.x,Cp.z,mat,pythTri,0.2,0.16);    // hypoténuse (le côté oblique cherché)
-  // petit carré d'angle droit au sommet P
-  const rs=0.55, rax=ux*rs, raz=uz*rs;
-  const perp={x:Cp.x-P.x, z:Cp.z-P.z}, plen=Math.hypot(perp.x,perp.z)||1, pux=perp.x/plen, puz=perp.z/plen;
+  addBar(Bp.x,Bp.z,Ap.x,Ap.z,mat,pythTri,0.16,0.13);     // 1er côté
+  addBar(Ap.x,Ap.z,Cp.x,Cp.z,mat,pythTri,0.16,0.13);     // 2e côté
+  addBar(Bp.x,Bp.z,Cp.x,Cp.z,mat,pythTri,0.2,0.16);      // hypoténuse / côté oblique cherché
+  // petit carré d'angle droit au sommet Ap
+  const rs=0.55;
   const cornerGeo=new THREE.BufferGeometry();
-  const p0=P, p1={x:P.x+rax,z:P.z+raz}, p2={x:P.x+rax+pux*rs,z:P.z+raz+puz*rs}, p3={x:P.x+pux*rs,z:P.z+puz*rs};
+  const p0=Ap, p1={x:Ap.x+ux*rs,z:Ap.z+uz*rs}, p2={x:Ap.x+ux*rs+pux*rs,z:Ap.z+uz*rs+puz*rs}, p3={x:Ap.x+pux*rs,z:Ap.z+puz*rs};
   cornerGeo.setAttribute('position',new THREE.Float32BufferAttribute([p0.x,0.14,p0.z, p1.x,0.14,p1.z, p2.x,0.14,p2.z, p3.x,0.14,p3.z],3));
   cornerGeo.setIndex([0,1,2, 0,2,3]); cornerGeo.computeVertexNormals();
   const corner=new THREE.Mesh(cornerGeo,new THREE.MeshStandardMaterial({color:0xe8402a,transparent:true,opacity:.5,side:THREE.DoubleSide}));
@@ -1614,15 +1698,14 @@ function showPythTriangle(){
 }
 function hidePythTriangle(){ if(pythTri){ scene.remove(pythTri); pythTri=null; } }
 function drawDiagonal(){
-  if(diagonalMesh) scene.remove(diagonalMesh);
-  const mat=new THREE.MeshStandardMaterial({color:0xe8d048,emissive:0x444400,roughness:.6});
+  if(diagonalMesh){ scene.remove(diagonalMesh); diagonalMesh=null; }
   const edge=findObliqueEdge();
-  let dx,dz,mx,mz;
-  if(edge){ const [A,B]=edge; dx=B.x-A.x; dz=B.z-A.z; mx=(A.x+B.x)/2; mz=(A.z+B.z)/2; }
-  else { dx=COLS*PS; dz=ROWS*PS; mx=0; mz=0; }             // repli : diagonale du rectangle englobant
-  const len=Math.hypot(dx,dz);
-  diagonalMesh=new THREE.Mesh(new THREE.BoxGeometry(len,0.05,0.22),mat);
-  diagonalMesh.position.set(mx,0.14,mz); diagonalMesh.rotation.y=Math.atan2(dz,dx); scene.add(diagonalMesh);
+  if(!edge) return;                                     // pas d'arête fiable trouvée : ne rien tracer (plutôt qu'une diagonale fausse)
+  const mat=new THREE.MeshStandardMaterial({color:0xe8d048,emissive:0x444400,roughness:.6});
+  const [A,B]=edge;
+  diagonalMesh=new THREE.Group();
+  addBar(A.x,A.z,B.x,B.z,mat,diagonalMesh,0.22,0.14);
+  scene.add(diagonalMesh);
 }
 // ── Côtes (dimensions) sur le champ ──
 function makeDimLabel(text){
@@ -1638,7 +1721,7 @@ function makeDimLabel(text){
 function addBar(ax,az,bx,bz,mat,grp,w,y){
   const len=Math.hypot(bx-ax,bz-az); if(len<0.02)return;
   const bar=new THREE.Mesh(new THREE.BoxGeometry(len,0.08,w),mat);
-  bar.position.set((ax+bx)/2,y===undefined?0.5:y,(az+bz)/2); bar.rotation.y=Math.atan2(bz-az,bx-ax); grp.add(bar);
+  bar.position.set((ax+bx)/2,y===undefined?0.5:y,(az+bz)/2); bar.rotation.y=-Math.atan2(bz-az,bx-ax); grp.add(bar);
 }
 function makeDimEdge(A,B,off,text,grp){
   const s=1.4, ox=off.x*s, oz=off.z*s;
@@ -1689,14 +1772,15 @@ function endLevel(){
 function nextLevel(){ document.getElementById('modal-end').classList.remove('active'); currentLevel++; loadLevel(); }
 function showFinal(){
   document.getElementById('modal-end').classList.remove('active');
-  if(currentShapeId==='rect') markRectDone();
+  markShapeDone(currentShapeId);
   document.getElementById('screen-game').style.display='none';
   const s=document.getElementById('screen-title'); s.style.display='flex';
-  const justUnlocked=currentShapeId==='rect';
+  const unlockMsg = currentShapeId==='rect' ? 'Le Niveau 2 (trapèze rectangle) est débloqué !'
+                   : currentShapeId==='trap' ? 'Le Niveau 3 (champ triangulaire) est débloqué !' : null;
   s.innerHTML=`<div class="finish-box">
       <div class="t-label">Saison terminée</div><h1 class="title">Agro<span>Math</span></h1>
       <p class="t-desc" style="margin:0">Tu as terminé le ${SHAPE.label.toLowerCase()} — les ${LEVELS.length} travaux sont bouclés !
-      ${justUnlocked?'<br><b style="color:var(--gold)">Le Niveau 2 (trapèze rectangle) est débloqué !</b>':''}</p>
+      ${unlockMsg?'<br><b style="color:var(--gold)">'+unlockMsg+'</b>':''}</p>
       <button class="btn" onclick="location.reload()">Nouvelle saison</button>
     </div>`;
 }
