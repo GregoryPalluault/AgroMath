@@ -214,11 +214,13 @@ function pointSegDist(px,pz,ax,az,bx,bz){
   return Math.hypot(px-(ax+t*dx),pz-(az+t*dz));
 }
 function shapeUnlocked(id){
+  if(TEST_UNLOCK_ALL) return true;   // ?test=1 dans l'URL : débloque tout, temporaire, pour les tests
   if(id==='rect') return true;
   if(id==='trap') return shapeDone('rect');
   if(id==='tri') return shapeDone('trap');
   return false;
 }
+const TEST_UNLOCK_ALL = new URLSearchParams(location.search).get('test')==='1';
 function shapeDone(id){
   try{ if(localStorage.getItem('agromath_'+id+'Done')==='1') return true; }catch(e){}
   return !!sessionDone[id];
@@ -323,7 +325,7 @@ const SHAPE_DEFS={
       let L=pick([120,150,180,200,160]), l=pick([80,100,120,90,110]); if(l>L){const t=L;L=l;l=t;}
       const area=L*l, perim=2*(L+l), diag=r1(Math.sqrt(L*L+l*l));
       return {area_m2:area, badge:`Rectangle ${L} × ${l} m`,
-        dims:[{a:0,b:1,off:{x:0,z:-1},text:`L = ${L} m`},{a:1,b:2,off:{x:1,z:0},text:`l = ${l} m`}],
+        dims:[{a:0,b:1,off:{x:0,z:-1},text:`${L} m`},{a:1,b:2,off:{x:1,z:0},text:`${l} m`}],
         geom:{
           area:{tag:"Géométrie · Aire",unit:"m²",schema:`Rectangle\n  Longueur L = ${L} m\n  Largeur l = ${l} m`,
             text:"Surface du champ, en m² ?",hints:["Il faut l'aire du rectangle.","Aire = Longueur × largeur."],
@@ -331,7 +333,7 @@ const SHAPE_DEFS={
           perim:{tag:"Géométrie · Périmètre",unit:"m",schema:`Rectangle\n  Longueur L = ${L} m\n  Largeur l = ${l} m`,
             text:"Longueur de clôture pour entourer le champ ?",hints:["Il faut le périmètre.","2 longueurs + 2 largeurs."],
             answer:perim,sol:`2 × (${L} + ${l}) = ${perim} m`},
-          pyth:{tag:"Géométrie · Pythagore",unit:"m",showTriangle:true,schema:`Triangle rectangle formé par L et l\n  L = ${L} m\n  l = ${l} m`,
+          pyth:{tag:"Géométrie · Longueur manquante",unit:"m",showTriangle:true,schema:`Triangle rectangle formé par L et l\n  L = ${L} m\n  l = ${l} m`,
             text:"Longueur de la diagonale du champ ?",hints:["La diagonale = hypoténuse du triangle (L, l).","Pythagore : d = √(L² + l²)."],
             answer:diag,sol:`√(${L}² + ${l}²) ≈ ${diag} m`}
         }};
@@ -349,7 +351,7 @@ const SHAPE_DEFS={
       const ob=r1(Math.sqrt(h*h+(B-b)*(B-b)));
       const area=(B+b)/2*h, perim=r1(B+b+h+ob);
       return {area_m2:area, badge:`Trapèze rect. B=${B} b=${b} h=${h} m`,
-        dims:[{a:0,b:1,off:{x:0,z:-1},text:`B = ${B} m`},{a:3,b:2,off:{x:0,z:1},text:`b = ${b} m`},{a:0,b:3,off:{x:-1,z:0},text:`h = ${h} m`}],
+        dims:[{a:0,b:1,off:{x:0,z:-1},text:`${B} m`},{a:3,b:2,off:{x:0,z:1},text:`${b} m`},{a:0,b:3,off:{x:-1,z:0},text:`${h} m`}],
         geom:{
           area:{tag:"Géométrie · Aire",unit:"m²",
             schema:`Trapèze rectangle\n  Grande base B = ${B} m\n  Petite base b = ${b} m\n  Hauteur h = ${h} m`,
@@ -359,7 +361,7 @@ const SHAPE_DEFS={
             schema:`Trapèze rectangle\n  Grande base B = ${B} m\n  Petite base b = ${b} m\n  Hauteur (côté droit) = ${h} m\n  Côté oblique = ${ob} m`,
             text:"Longueur de clôture (périmètre) ?",hints:["Additionne les 4 côtés.","Périmètre = B + b + hauteur + côté oblique."],
             answer:perim,sol:`${B} + ${b} + ${h} + ${ob} = ${perim} m`},
-          pyth:{tag:"Géométrie · Pythagore",unit:"m",showTriangle:true,
+          pyth:{tag:"Géométrie · Longueur manquante",unit:"m",showTriangle:true,
             schema:`Côté oblique du trapèze\n  Hauteur h = ${h} m\n  Écart des bases : B − b = ${B-b} m`,
             text:"Longueur du côté oblique ?",hints:["Triangle rectangle formé par la hauteur et l'écart des bases.","Pythagore : oblique = √(h² + (B − b)²)."],
             answer:ob,sol:`√(${h}² + ${B-b}²) ≈ ${ob} m`}
@@ -381,7 +383,8 @@ const SHAPE_DEFS={
         [{x:hxTop,z:sz},{x:hx,z:sz},{x:hx,z:-hz},{x:hxTop,z:-hz}]        // pièce proche (rectangle, l'entrée)
       ]; },
     build(){
-      const L=pick([100,120,140,160]), Hlow=pick([40,50,60,70]);
+      const L=pick([100,120,140,160]);
+      const Hlow=Math.round((L*pick([0.4,0.45,0.5,0.55,0.6]))/10)*10;   // proportionné à L (pas de rapport extrême)
       const scale=pick([10,10,15]);
       const [lh,lm,lc]=pick([[3,4,5],[6,8,10],[5,12,13],[8,15,17],[9,12,15]]);
       const H=lh*scale, missing=lm*scale, hyp=lc*scale;
@@ -389,12 +392,11 @@ const SHAPE_DEFS={
       const perim=r1(2*L + hyp + 2*Hlow + missing + H);
       return {area_m2:area, badge:`Champ en L — L=${L} m, H=${H} m, hyp=${hyp} m`,
         dims:[
-          {a:0,b:1,off:{x:0,z:1},text:`L = ${L} m`},
-          {a:1,b:2,off:{x:1,z:0.4},text:`Hypoténuse = ${hyp} m`},
-          {a:2,b:3,off:{x:1,z:0},text:`H2 = ${Hlow} m`},
-          {a:4,b:5,off:{x:-1,z:0.3},text:`H2 = ${Hlow} m`},
-          {a:5,b:6,off:{x:0,z:-1},text:`L = ${L} m`},
-          {a:6,b:0,off:{x:-1,z:0},text:`H = ${H} m`}
+          {a:0,b:1,off:{x:0,z:1},text:`${L} m`},
+          {a:1,b:2,off:{x:1.3,z:1.1},text:`${hyp} m`},
+          {a:2,b:3,off:{x:1,z:0},text:`${Hlow} m`},
+          {a:6,b:0,off:{x:-1,z:0},text:`${H} m`},
+          {a:3,b:4,off:{x:0,z:-1},text:`${missing} m`,after:true}
         ],
         geom:{
           area:{tag:"Géométrie · Aire",unit:"m²",
@@ -407,7 +409,7 @@ const SHAPE_DEFS={
             text:"Longueur de clôture (périmètre) ?",
             hints:["Additionne les 7 côtés du contour, un par un.","Périmètre = 2×L + H + 2×H2 + hypoténuse + petit côté."],
             answer:perim,sol:`2×${L} + ${H} + 2×${Hlow} + ${hyp} + ${missing} = ${perim} m`},
-          pyth:{tag:"Géométrie · Pythagore",unit:"m",showTriangle:true,
+          pyth:{tag:"Géométrie · Longueur manquante",unit:"m",showTriangle:true,
             schema:`Triangle rectangle formé par la hauteur et l'hypoténuse\n  H = ${H} m\n  Hypoténuse = ${hyp} m`,
             text:"Quelle est la longueur du petit côté manquant du champ ?",
             hints:["C'est un triangle rectangle : utilise le théorème de Pythagore.",`petit côté = √(hypoténuse² − H²) = √(${hyp}² − ${H}²).`],
@@ -419,9 +421,11 @@ const SHAPE_DEFS={
 
 // ═══════════ PROPORTIONNALITÉ / FONCTIONS (m², sans hectare, sans durée) ═══════════
 function buildProp(area){
-  const consoOpts=[]; for(let i=17;i<=28;i++) consoOpts.push(i/10);
-  const conso=pick(consoOpts), fioul=r1(conso*area/1000);
-  const consoS=pick(consoOpts.filter(v=>v!==conso)), fioulS=r1(consoS*area/1000);   // fioul spécifique au semoir
+  const consoOpts1000=[]; for(let i=17;i<=28;i++) consoOpts1000.push(i/10);
+  const conso=pick(consoOpts1000), fioul=r1(conso*area/1000);
+  const consoHaOpts=[10,12,14,15,16,18,20,22,25];
+  const consoHa=pick(consoHaOpts), fioulHa=r1(consoHa*area/10000);
+  const consoS=pick(consoOpts1000.filter(v=>v!==conso)), fioulS=r1(consoS*area/1000);   // fioul spécifique au semoir
   const Lr=pick([4000,5000,6000]), densite=pick([10,12,14]), grains=densite*Lr;
   const pct=pick([5,8,10,12,15,20]), extraGrains=grains*pct/100, totalGrains=grains+extraGrains;
   const rend=pick([400,500,600]), recolteKg=Math.round(rend*area/1000), recolteT=r1(recolteKg/1000);
@@ -433,7 +437,7 @@ function buildProp(area){
   const prixT=pick([180,200,220]), recette=r1(prixT*recolteT), benefice=r1(recette-cout);
   const hoursOpts=[2,3,4].filter(hh=>area%hh===0);
   const hoursH=pick(hoursOpts.length?hoursOpts:[2]), debitH=Math.round(area/hoursH);   // durée exacte en heures
-  return {conso,fioul,consoS,fioulS,Lr,densite,grains,pct,extraGrains,totalGrains,rend,recolteKg,recolteT,capT,nbBennes,siloR,siloH,siloVol,cap,nbRem,cA,cB,cout,x0,budget,prixT,recette,benefice,debitH,hoursH};
+  return {conso,fioul,consoHa,fioulHa,consoS,fioulS,Lr,densite,grains,pct,extraGrains,totalGrains,rend,recolteKg,recolteT,capT,nbBennes,siloR,siloH,siloVol,cap,nbRem,cA,cB,cout,x0,budget,prixT,recette,benefice,debitH,hoursH};
 }
 
 // ═══════════ NIVEAUX ═══════════
@@ -445,8 +449,8 @@ function buildLevels(){
    {name:"TRAVAIL N°1 · CLÔTURE", work:"fence", tool:"fence",
     tasks:[
       ...(SHAPE.hasPyth ? [clone(g.pyth,{intro: currentShapeId==='tri'
-        ? "Le champ a la forme d'un rectangle avec un coin coupé et une extension. Avant de le clôturer, calcule la longueur du petit côté manquant (théorème de Pythagore)."
-        : "Le champ a la forme d'un trapèze rectangle. Avant de le clôturer, calcule la longueur de son côté oblique (théorème de Pythagore)."})] : []),
+        ? "Le champ a la forme d'un rectangle avec un coin coupé et une extension. Avant de le clôturer, calcule la longueur du petit côté manquant du triangle."
+        : "Le champ a la forme d'un trapèze rectangle. Avant de le clôturer, calcule la longueur de son côté oblique."})] : []),
       clone(g.perim,{intro: SHAPE.hasPyth
         ? "Tu connais maintenant toutes les longueurs du champ. Calcule le périmètre total : c'est la longueur de clôture nécessaire. Ensuite, va chercher la poseuse et fais le tour du champ."
         : "Avant de cultiver, tu dois clôturer ton champ. Calcule la longueur de clôture nécessaire : le périmètre. Ensuite, va chercher la poseuse et fais le tour du champ."})
@@ -455,7 +459,13 @@ function buildLevels(){
    {name:"TRAVAIL N°2 · LABOUR", work:"plow", tool:"plow",
     tasks:[
       clone(g.area,{intro:"Champ clôturé ! Place au labour. Calcule d'abord la surface à travailler."}),
-      {tag:"Proportionnalité · Fioul",unit:"L",action:"fuel",
+      currentShapeId==='tri' ? {tag:"Proportionnalité · Fioul",unit:"L",action:"fuel",
+       schema:`Consommation = ${fmt(P.consoHa)} L pour 1 ha\n  Surface = ${a} m²`,
+       text:"Fioul nécessaire pour labourer tout le champ ?",
+       intro:"Estime le carburant nécessaire. Ensuite, va chercher la charrue et laboure toute la parcelle.",
+       hints:["1 hectare = 10 000 m². Convertis d'abord la surface du champ en hectares.","fioul = consommation × (surface en m² ÷ 10 000)."],
+       answer:P.fioulHa,sol:`${fmt(P.consoHa)} × (${a} ÷ 10000) = ${fmt(P.fioulHa)} L`}
+      : {tag:"Proportionnalité · Fioul",unit:"L",action:"fuel",
        schema:`Consommation = ${fmt(P.conso)} L pour 1 000 m²\n  Surface = ${a} m²`,
        text:"Fioul nécessaire pour labourer tout le champ ?",
        intro:"Estime le carburant nécessaire. Ensuite, va chercher la charrue et laboure toute la parcelle.",
@@ -525,7 +535,7 @@ let introPlayed=false,camIntro=null,cameraTarget=new THREE.Vector3();
 let camOrbit=null,camDrag=null;
 let camMode='orbit',camTween=null;   // 'orbit' | 'toDriver' | 'driver'
 let lastTime=0;
-const TRACT_R=1.0, WORK_R=PS*0.62, LOAD_R=3.2;
+const TRACT_R=1.45, WORK_R=PS*0.62, LOAD_R=3.2;
 
 const keys={};
 addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;if(['arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();
@@ -706,7 +716,8 @@ function buildScene(){
   diagonalMesh=null; dimAnnos=null; pythTri=null; parcels=[]; fenceSegments=[]; fencePlantedCount=0;
   if(fuelAnim){ scene.remove(fuelAnim.grp); fuelAnim=null; } if(toolAnim) toolAnim=null;
   crops=[]; pops=[]; grains.forEach(x=>scene.remove(x)); grains=[];
-  COLS=9; ROWS=7;                          // champ agrandi (+1 case par côté)
+  if(currentShapeId==='tri'){ COLS=13; ROWS=11; }   // champ en L : a besoin de plus de place
+  else { COLS=9; ROWS=7; }                          // rectangle / trapèze : taille d'origine (travail au tracteur pas trop long)
   const fw=COLS*PS, fh=ROWS*PS, hx=fw/2, hz=fh/2;
   const x0=-fw/2+PS/2, z0=-fh/2+PS/2;
   const lvl=LEVELS[currentLevel];
@@ -718,7 +729,7 @@ function buildScene(){
   const grassTex=getGrassTexture();
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),new THREE.MeshStandardMaterial({map:grassTex,roughness:1}));
   ground.rotation.x=-Math.PI/2; ground.position.y=-0.05; ground.receiveShadow=true; decorGroup.add(ground);
-  const dirt=new THREE.Mesh(new THREE.PlaneGeometry(fw+14,fh+14),new THREE.MeshStandardMaterial({color:0x6a5733,roughness:1}));
+  const dirt=new THREE.Mesh(new THREE.PlaneGeometry(fw+8,fh+8),new THREE.MeshStandardMaterial({color:0x6a5733,roughness:1}));
   dirt.rotation.x=-Math.PI/2; dirt.position.y=-0.02; dirt.receiveShadow=true; decorGroup.add(dirt);
   // chemin d'accès vers le portail
   const road=new THREE.Mesh(new THREE.PlaneGeometry(6,26),new THREE.MeshStandardMaterial({color:0x7a6238,roughness:1}));
@@ -765,14 +776,14 @@ function buildScene(){
   // ── OUTILS (colonne à droite) + CITERNE (bas, au centre) ──
   const gx = gate ? gate.x : 0;
   toolStations=[];
-  buildToolYard(decorGroup, hx+9, 0, lvl.tool);
-  cistern={x:gx, z:minZ-6.5};
+  buildToolYard(decorGroup, hx+6, 0, lvl.tool);
+  cistern={x:gx, z:minZ-3.6};
   decorGroup.add(makeCistern(cistern.x,cistern.z)); decorGroup.add(makeGroundShadow(cistern.x,cistern.z,1.9));
 
   // ── HANGAR + TRACTEUR (côté opposé aux outils, aligné en face d'eux, à bonne distance du champ) ──
-  const garageX=-hx-10, garageZ=0;
+  const garageX=-hx-7, garageZ=0;
   decorGroup.add(makeHangar(garageX,garageZ,+1)); decorGroup.add(makeGroundShadow(garageX,garageZ,3.4));
-  tractor={group:makeTractor(),x:garageX+4,z:garageZ,heading:Math.PI/2,tool:null,toolLocked:false,
+  tractor={group:makeTractor(),x:garageX+0.8,z:garageZ,heading:Math.PI/2,tool:null,toolLocked:false,
            refueled:(currentLevel>=1?false:true),wheelSpin:0,smoke:[],toolMesh:null};
   tractor.group.position.set(tractor.x,0,tractor.z); tractor.group.rotation.y=tractor.heading; scene.add(tractor.group);
 
@@ -861,20 +872,71 @@ function makeCistern(x,z){
   cisternLabel=label;
   g.position.set(x,0,z); return g;
 }
+// ── Texture de planches en bois (procédurale, sans fichier externe) ──
+let _woodTex=null;
+function getWoodTexture(){
+  if(_woodTex) return _woodTex;
+  const size=256, c=document.createElement('canvas'); c.width=c.height=size; const g=c.getContext('2d');
+  g.fillStyle='#9a7b4a'; g.fillRect(0,0,size,size);
+  const nPlanks=8, pw=size/nPlanks;
+  for(let i=0;i<nPlanks;i++){
+    const x0=i*pw, tone=0.85+Math.random()*0.3;
+    const base={r:154*tone,g:123*tone,b:74*tone};
+    g.fillStyle=`rgb(${base.r|0},${base.g|0},${base.b|0})`;
+    g.fillRect(x0,0,pw-3,size);
+    // fibres/grain horizontal
+    for(let k=0;k<14;k++){
+      const y=Math.random()*size;
+      g.strokeStyle=`rgba(${(base.r*0.6)|0},${(base.g*0.6)|0},${(base.b*0.6)|0},0.25)`;
+      g.lineWidth=1+Math.random();
+      g.beginPath(); g.moveTo(x0,y); g.lineTo(x0+pw-3,y+(Math.random()-.5)*8); g.stroke();
+    }
+    // rainure entre planches
+    g.fillStyle='rgba(35,22,10,0.55)'; g.fillRect(x0+pw-3,0,3,size);
+  }
+  const tex=new THREE.CanvasTexture(c);
+  tex.wrapS=tex.wrapT=THREE.RepeatWrapping; tex.repeat.set(1,1);
+  _woodTex=tex; return tex;
+}
+function makeQuad(p1,p2,p3,p4,mat){
+  // quad plan défini par ses 4 coins (dans l'ordre), aucune rotation à calculer
+  const geo=new THREE.BufferGeometry();
+  const v=[p1.x,p1.y,p1.z, p2.x,p2.y,p2.z, p3.x,p3.y,p3.z, p4.x,p4.y,p4.z];
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
+  geo.setIndex([0,1,2, 0,2,3]); geo.computeVertexNormals();
+  const m=new THREE.Mesh(geo,mat); m.castShadow=true; m.receiveShadow=true; return m;
+}
+function makeTri3(p1,p2,p3,mat){
+  const geo=new THREE.BufferGeometry();
+  const v=[p1.x,p1.y,p1.z, p2.x,p2.y,p2.z, p3.x,p3.y,p3.z];
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(v,3));
+  geo.setIndex([0,1,2]); geo.computeVertexNormals();
+  const m=new THREE.Mesh(geo,mat); m.castShadow=true; return m;
+}
 function makeHangar(x,z,dir){
   dir=dir||-1;                 // sens de l'ouverture : -1 = vers -x, +1 = vers +x
   const g=new THREE.Group();
-  const wood=toonMat(0x9a7b4a);
-  const woodD=toonMat(0x7d6238);
-  const roofMat=toonMat(0x8a6a3a);
-  const W=4.6,D=5.4,H=3.4,t=0.28;
-  const back=new THREE.Mesh(new THREE.BoxGeometry(t,H,D),woodD); back.position.set(-dir*W/2,H/2,0); back.castShadow=true; back.receiveShadow=true; g.add(back);
-  [D/2,-D/2].forEach(sz=>{const s=new THREE.Mesh(new THREE.BoxGeometry(W,H,t),woodD); s.position.set(0,H/2,sz); s.castShadow=true; g.add(s);});
+  const woodTex=getWoodTexture();
+  const wood=new THREE.MeshToonMaterial({color:0xffffff,map:woodTex,gradientMap:getToonGradient()});
+  const woodD=new THREE.MeshToonMaterial({color:0xdcd0b8,map:woodTex,gradientMap:getToonGradient()});
+  const roofMat=new THREE.MeshToonMaterial({color:0x7a5a30,gradientMap:getToonGradient(),side:THREE.DoubleSide});
+  const W=4.6,D=5.4,H=3.2,roofH=1.3,overhang=0.5;   // ouverture le long de X ; D = largeur (côté à côté) le long de Z
+  const back=new THREE.Mesh(new THREE.BoxGeometry(0.22,H,D),woodD); back.position.set(-dir*W/2,H/2,0); back.castShadow=true; back.receiveShadow=true; g.add(back);
+  [D/2,-D/2].forEach(sz=>{const s=new THREE.Mesh(new THREE.BoxGeometry(W,H,0.22),woodD); s.position.set(0,H/2,sz); s.castShadow=true; g.add(s);});
   [D/2,-D/2].forEach(sz=>{const p=new THREE.Mesh(new THREE.BoxGeometry(0.26,H,0.26),wood); p.position.set(dir*W/2,H/2,sz); p.castShadow=true; g.add(p);});
   const beam=new THREE.Mesh(new THREE.BoxGeometry(0.26,0.3,D),wood); beam.position.set(dir*W/2,H-0.15,0); g.add(beam);
-  const roof=new THREE.Mesh(new THREE.BoxGeometry(W+0.8,t,D+0.8),roofMat); roof.position.set(0,H+t/2,0); roof.castShadow=true; g.add(roof);
+  // toit à deux pans : crête le long de X (axe de l'ouverture), pans qui descendent vers les 2 murs latéraux (±Z)
+  const halfX=W/2+overhang, halfZ=D/2+overhang*0.3, ridgeY=H+roofH;
+  g.add(makeQuad({x:-halfX,y:H,z:halfZ},{x:halfX,y:H,z:halfZ},{x:halfX,y:ridgeY,z:0},{x:-halfX,y:ridgeY,z:0}, roofMat));
+  g.add(makeQuad({x:-halfX,y:H,z:-halfZ},{x:halfX,y:H,z:-halfZ},{x:halfX,y:ridgeY,z:0},{x:-halfX,y:ridgeY,z:0}, roofMat));
+  const ridge=new THREE.Mesh(new THREE.BoxGeometry(W+overhang*2,0.22,0.22),wood); ridge.position.set(0,ridgeY,0); g.add(ridge);
+  // pignons (triangles) aux 2 extrémités de l'ouverture (avant + arrière), ferment le volume sous le faîtage
+  const gableMat=new THREE.MeshToonMaterial({color:0xdcd0b8,map:woodTex,gradientMap:getToonGradient(),side:THREE.DoubleSide});
+  [W/2,-W/2].forEach(px=>{
+    g.add(makeTri3({x:px,y:H,z:-D/2},{x:px,y:H,z:D/2},{x:px,y:ridgeY,z:0}, gableMat));
+  });
   addToonOutline(g);
-  const board=new THREE.Mesh(new THREE.BoxGeometry(t*0.6,0.7,1.8),toonMat(0xd4a832));
+  const board=new THREE.Mesh(new THREE.BoxGeometry(0.14,0.7,1.8),toonMat(0xd4a832));
   board.position.set(-dir*(W/2+0.05),H+0.4,0); g.add(board);
   g.position.set(x,0,z); return g;
 }
@@ -1029,25 +1091,46 @@ function buildLandscape(group,hx,hz,minZ){
   windmills=[]; ducks=[]; clouds=[]; smokeSources=[]; trees=[]; hens=[];
   ambSmoke.forEach(m=>scene.remove(m)); ambSmoke=[]; smokeTimer=0;
   birds.forEach(b=>scene.remove(b)); birds=[]; birdTimer=6;
-  const fx=0, fz=hz+9, frot=Math.PI;   // mur de façade aligné avec le début de l'herbe (bord du chemin de terre, agrandi)
+  const fx=0, fz=hz+6, frot=Math.PI;   // mur de façade aligné avec le début de l'herbe (bord du chemin de terre, resserré)
   group.add(makeFarmhouse(fx,fz,frot)); group.add(makeGroundShadow(fx,fz,4.2));
   const lx=1.5,lz=0.7;
   smokeSources.push({x:fx+lx*Math.cos(frot)+lz*Math.sin(frot), y:5.4, z:fz-lx*Math.sin(frot)+lz*Math.cos(frot)});
-  group.add(makeBarn(hx+14,-2,-Math.PI/2)); group.add(makeGroundShadow(hx+14,-2,4.6));
-  group.add(makeSilo(hx+11,10)); group.add(makeSilo(hx+13.5,10.5)); group.add(makeGroundShadow(hx+12.2,10.2,2.4));
-  group.add(makeWindmill(-hx-14,10)); group.add(makeGroundShadow(-hx-14,10,1.6));
-  group.add(makePond(hx+16,-14));
+  group.add(makeBarn(hx+11,-2,-Math.PI/2)); group.add(makeGroundShadow(hx+11,-2,4.6));
+  group.add(makeSilo(hx+8,10)); group.add(makeSilo(hx+10.5,10.5)); group.add(makeGroundShadow(hx+9.2,10.2,2.4));
+  group.add(makeWindmill(-hx-11,10)); group.add(makeGroundShadow(-hx-11,10,1.6));
+  group.add(makePond(hx+13,-14));
   group.add(makeHayBale(hx+4,minZ-8)); group.add(makeHayBale(hx+5.6,minZ-8.4)); group.add(makeHayBale(hx+4.8,minZ-9.6));
   group.add(makeGroundShadow(hx+4.8,minZ-8.5,1.6));
   // poules près de la grange
-  [[hx+9,-4.5],[hx+10.5,-1.5],[hx+13,-3.5],[hx+8,-2]].forEach(p=>{const h=makeHen(p[0],p[1]); group.add(h); hens.push({g:h,phase:Math.random()*6.28,bx:p[0],bz:p[1]});});
+  [[hx+6,-4.5],[hx+7.5,-1.5],[hx+10,-3.5],[hx+5,-2]].forEach(p=>{const h=makeHen(p[0],p[1]); group.add(h); hens.push({g:h,phase:Math.random()*6.28,bx:p[0],bz:p[1]});});
   // arbres variés en périphérie (mémorisés pour le balancement)
-  const spots=[[-hx-9,-hz-4],[-hx-13,-hz+3],[hx+8,-hz-6],[hx+14,-hz-2],[-hx-16,hz-4],[-hx-12,hz+6],
-    [hx+15,hz+4],[hx+18,hz-8],[-hx-6,hz+9],[6,hz+11],[-8,hz+12],[-hx-18,-2],[hx+20,2],[0,-hz-16]];
+  const spots=[[-hx-6,-hz-4],[-hx-10,-hz+3],[hx+5,-hz-6],[hx+15,-hz+3],[-hx-13,hz-4],[-hx-9,hz+6],
+    [hx+12,hz+4],[hx+15,hz-8],[-hx-3,hz+9],[6,hz+8],[-8,hz+9],[-hx-15,-2],[hx+17,2],[0,-hz-13]];
   spots.forEach((p,i)=>{ const r=i%3; const tree=(r===0?makePine(p[0],p[1],0.9+Math.random()*0.4)
       : makeTree(p[0],p[1],0.85+Math.random()*0.5, r===1?0x5aa538:0x6cb840));
       group.add(tree); group.add(makeGroundShadow(p[0],p[1],1.5)); trees.push({g:tree,phase:Math.random()*6.28,amp:0.02+Math.random()*0.02}); });
   [[-hx-4,hz+7],[hx+6,hz+8],[-hx-8,-hz-2],[hx+3,-hz-5],[10,hz+9]].forEach(p=>{group.add(makeBush(p[0],p[1])); group.add(makeGroundShadow(p[0],p[1],0.9));});
+  // ceinture de forêt tout autour du champ, pour un environnement boisé
+  scatterForest(group, hx, hz, minZ);
+}
+// Disperse une grande quantité d'arbres en anneau autour de toute la scène, en évitant les bâtiments/la mare
+function scatterForest(group, hx, hz, minZ){
+  const keepOut=[
+    {x:0,z:hz+6,r:9},{x:hx+11,z:-2,r:9},{x:hx+9.2,z:10.2,r:6},{x:-hx-11,z:10,r:5},
+    {x:hx+13,z:-14,r:7},{x:-hx-7,z:0,r:7},{x:hx+6,z:0,r:7},{x:0,z:minZ-4,r:5},{x:0,z:0,r:hx+3}
+  ];
+  const R1=Math.max(hx,hz)+17, R2=R1+22;
+  let placed=0, attempts=0;
+  while(placed<45 && attempts<400){
+    attempts++;
+    const ang=Math.random()*Math.PI*2, rad=R1+Math.random()*(R2-R1);
+    const x=Math.cos(ang)*rad, z=Math.sin(ang)*rad;
+    if(keepOut.some(k=>Math.hypot(x-k.x,z-k.z)<k.r)) continue;
+    const scale=0.8+Math.random()*0.6;
+    const tree = Math.random()<0.45 ? makePine(x,z,scale) : makeTree(x,z,scale, Math.random()<0.5?0x5aa538:0x4d7a2e);
+    group.add(tree); trees.push({g:tree,phase:Math.random()*6.28,amp:0.02+Math.random()*0.02});
+    placed++;
+  }
 }
 function spawnChimneySmoke(s){
   const m=new THREE.Mesh(new THREE.SphereGeometry(0.32,8,8),new THREE.MeshStandardMaterial({color:0xf0f0f0,transparent:true,opacity:.5,roughness:1}));
@@ -1300,18 +1383,22 @@ function makeTractor(){
   // échappement
   const ex=new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.075,0.8,10),dark); ex.position.set(bw*0.38,1.55,bl*0.34); ex.castShadow=true; g.add(ex);
   g.userData.exhaust=new THREE.Vector3(bw*0.38,2.0,bl*0.34);
-  // roues (pneu + jante claire), en groupes qui tournent
-  const wheels=[];
-  function wheel(x,z,R,W){
-    const wg=new THREE.Group();
-    const tire=new THREE.Mesh(new THREE.CylinderGeometry(R,R,W,18),dark); tire.rotation.z=Math.PI/2; tire.castShadow=true; wg.add(tire);
-    const disc=new THREE.Mesh(new THREE.CylinderGeometry(R*0.55,R*0.55,W*1.05,14),rim); disc.rotation.z=Math.PI/2; wg.add(disc);
-    const hub=new THREE.Mesh(new THREE.CylinderGeometry(R*0.18,R*0.18,W*1.1,8),dark); hub.rotation.z=Math.PI/2; wg.add(hub);
-    wg.position.set(x, R, z); g.add(wg); wheels.push(wg);
+  // roues (pneu + jante claire) : les avant pivotent (direction), les arrière tournent seulement (roulement)
+  const wheels=[], frontSteer=[];
+  function wheel(x,z,R,W,steer){
+    const tire=new THREE.Mesh(new THREE.CylinderGeometry(R,R,W,18),dark); tire.rotation.z=Math.PI/2; tire.castShadow=true;
+    const disc=new THREE.Mesh(new THREE.CylinderGeometry(R*0.55,R*0.55,W*1.05,14),rim); disc.rotation.z=Math.PI/2;
+    const hub=new THREE.Mesh(new THREE.CylinderGeometry(R*0.18,R*0.18,W*1.1,8),dark); hub.rotation.z=Math.PI/2;
+    const roll=new THREE.Group(); roll.add(tire,disc,hub);
+    if(steer){
+      const steerG=new THREE.Group(); steerG.position.set(x,R,z); steerG.add(roll); g.add(steerG);
+      frontSteer.push(steerG);
+    } else { roll.position.set(x,R,z); g.add(roll); }
+    wheels.push(roll);
   }
-  wheel(-bw/2-0.08,-bl*0.3,0.62,0.4); wheel(bw/2+0.08,-bl*0.3,0.62,0.4);   // arrière (grandes)
-  wheel(-bw/2,bl*0.34,0.42,0.32);     wheel(bw/2,bl*0.34,0.42,0.32);        // avant (petites)
-  g.userData.wheels=wheels;
+  wheel(-bw/2-0.08,-bl*0.3,0.62,0.4,false); wheel(bw/2+0.08,-bl*0.3,0.62,0.4,false);   // arrière (grandes)
+  wheel(-bw/2,bl*0.34,0.42,0.32,true);      wheel(bw/2,bl*0.34,0.42,0.32,true);        // avant (petites, pivotent)
+  g.userData.wheels=wheels; g.userData.frontSteer=frontSteer;
   addToonOutline(g,1.028);
   const anchor=new THREE.Group(); anchor.position.set(0,0,-bl*0.62); g.add(anchor); g.userData.anchor=anchor;
   return g;
@@ -1370,8 +1457,8 @@ function updateTractor(dt){
   if(keys['arrowright']||keys['d']) turn-=1;
   const SPEED=4.4, TURN=2.0;
   t.heading += turn*TURN*dt;                 // rotation possible même à l'arrêt
-  // assistance : redresse doucement vers l'axe le plus proche quand on ne tourne pas
-  if(turn===0 && v!==0){
+  // assistance : redresse doucement vers l'axe le plus proche quand on ne tourne pas — sauf pendant la clôture (bord oblique)
+  if(turn===0 && v!==0 && workMode!=='fence'){
     const step=Math.PI/2, nearest=Math.round(t.heading/step)*step;
     t.heading=lerpAngle(t.heading,nearest,Math.min(1,4*dt));
   }
@@ -1379,6 +1466,11 @@ function updateTractor(dt){
   const nx=t.x+Math.sin(t.heading)*mv, nz=t.z+Math.cos(t.heading)*mv;
   moveWithCollision(t,nx,nz);
   t.group.position.set(t.x,0,t.z); t.group.rotation.y=t.heading;
+  // direction des roues avant (pivote vers la gauche/droite selon l'entrée, revient au centre sinon)
+  t.steerCur = t.steerCur||0;
+  const targetSteer = turn*0.5;
+  t.steerCur += (targetSteer-t.steerCur)*Math.min(1,8*dt);
+  if(t.group.userData.frontSteer) t.group.userData.frontSteer.forEach(s=>s.rotation.y=t.steerCur);
   if(mv!==0){ t.wheelSpin+=mv*1.8; t.group.userData.wheels.forEach(w=>w.rotation.x=t.wheelSpin);
     t.group.position.y=Math.sin(t.wheelSpin*3)*0.012; if(Math.random()<0.5) spawnSmoke(t); }
   tryLoadTool(v<0);
@@ -1699,10 +1791,11 @@ function showPythTriangle(){
 function hidePythTriangle(){ if(pythTri){ scene.remove(pythTri); pythTri=null; } }
 function drawDiagonal(){
   if(diagonalMesh){ scene.remove(diagonalMesh); diagonalMesh=null; }
-  const edge=findObliqueEdge();
-  if(!edge) return;                                     // pas d'arête fiable trouvée : ne rien tracer (plutôt qu'une diagonale fausse)
+  let A,B;
+  if(SHAPE.pythVerts){ A=shapePoly[SHAPE.pythVerts[1]]; B=shapePoly[SHAPE.pythVerts[2]]; }
+  else { const edge=findObliqueEdge(); if(!edge) return; [A,B]=edge; }
+  if(!A||!B) return;
   const mat=new THREE.MeshStandardMaterial({color:0xe8d048,emissive:0x444400,roughness:.6});
-  const [A,B]=edge;
   diagonalMesh=new THREE.Group();
   addBar(A.x,A.z,B.x,B.z,mat,diagonalMesh,0.22,0.14);
   scene.add(diagonalMesh);
@@ -1747,7 +1840,8 @@ function showDims(){
   hideDims();
   if(!SHAPE_GEOM || !SHAPE_GEOM.dims || !shapePoly.length) return;
   dimAnnos=new THREE.Group();
-  SHAPE_GEOM.dims.forEach(d=>makeDimEdge(shapePoly[d.a],shapePoly[d.b],d.off,d.text,dimAnnos));
+  SHAPE_GEOM.dims.filter(d=>!d.after || currentLevel>0 || taskIndex>0)
+    .forEach(d=>makeDimEdge(shapePoly[d.a],shapePoly[d.b],d.off,d.text,dimAnnos));
   scene.add(dimAnnos);
 }
 function hideDims(){ if(dimAnnos){ scene.remove(dimAnnos); dimAnnos=null; } }
