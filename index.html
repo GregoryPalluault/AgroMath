@@ -697,6 +697,20 @@ function toggleView(){
   else { camMode='orbit'; }               // retour vue d'ensemble
   updateViewBtn();
 }
+// Retour en douceur à la vue d'ensemble (travelling), utilisé en fin de travail
+function startOverviewReturn(){
+  if(!camOrbit) return;
+  const s=camOrbit;
+  const toPos=new THREE.Vector3(
+    s.tx + s.radius*Math.sin(s.phi)*Math.sin(s.theta),
+    s.ty + s.radius*Math.cos(s.phi),
+    s.tz + s.radius*Math.sin(s.phi)*Math.cos(s.theta));
+  const toLook=new THREE.Vector3(s.tx,s.ty,s.tz);
+  const fromLook = (tractor && (camMode==='driver'||camMode==='toDriver')) ? driverPose().look : toLook.clone();
+  camMode='toOverview';
+  camTween={t:0,dur:1.8,fromPos:camera.position.clone(),fromLook,toPos,toLook};
+  updateViewBtn();
+}
 function updateViewBtn(){
   const b=document.getElementById('cam-view'); if(!b) return;
   b.textContent = (camMode==='orbit') ? '🚜 Vue conducteur' : '🗺️ Vue d\'ensemble';
@@ -777,7 +791,7 @@ function buildScene(){
   const gx = gate ? gate.x : 0;
   toolStations=[];
   buildToolYard(decorGroup, hx+6, 0, lvl.tool);
-  cistern={x:gx, z:minZ-3.6};
+  cistern={x:gx, z:minZ-5};
   decorGroup.add(makeCistern(cistern.x,cistern.z)); decorGroup.add(makeGroundShadow(cistern.x,cistern.z,1.9));
 
   // ── HANGAR + TRACTEUR (côté opposé aux outils, aligné en face d'eux, à bonne distance du champ) ──
@@ -1438,6 +1452,12 @@ function animate(){
     camera.lookAt(new THREE.Vector3().lerpVectors(camTween.fromLook,d.look,e));
     if(u>=1) camMode='driver';
   }
+  else if(camMode==='toOverview'){
+    camTween.t+=dt; const u=Math.min(1,camTween.t/camTween.dur), e=1-Math.pow(1-u,3);
+    camera.position.lerpVectors(camTween.fromPos,camTween.toPos,e);
+    camera.lookAt(new THREE.Vector3().lerpVectors(camTween.fromLook,camTween.toLook,e));
+    if(u>=1) camMode='orbit';
+  }
   else if(camOrbit) applyCamera();
   windmills.forEach(w=>w.userData.hub.rotation.z+=dt*0.6);
   updateAmbient(dt);
@@ -1849,6 +1869,7 @@ let tipTimer=null;
 function flashTip(html){ const t=document.getElementById('tip'); t.innerHTML=html; t.style.borderColor='var(--gold)'; clearTimeout(tipTimer); tipTimer=setTimeout(()=>t.style.borderColor='var(--border)',3000); }
 
 function endLevel(){
+  startOverviewReturn();
   const penalty=mathErrors+hintsUsed;
   let stars=penalty===0?3:penalty<=2?2:1;
   const starsStr='★'.repeat(stars)+'☆'.repeat(3-stars);
